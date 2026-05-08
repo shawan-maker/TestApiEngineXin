@@ -1,0 +1,11 @@
+print('前置脚本')
+a=global_func.random_mobile()
+# 设置全局变量
+test.save_global_variable("mobile",a)
+print(ENV.get("envs"))
+print("打印setup临时环境变量")
+# 设置局部变量
+test.save_env_variable("mobile",a * 2)
+print(test.env["mobile"])
+# 执行sql语句并打印
+print(db.P2P.execute_sql("SELECT * FROM czbk_member.mb_member;"))

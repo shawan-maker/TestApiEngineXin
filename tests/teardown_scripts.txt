@@ -1,0 +1,31 @@
+print('后置断言脚本')
+
+# 打印setup中赋值的数据
+print(a)
+
+# 打印响应的json数据
+res=response.json()
+print(res)
+
+# 删除setup中设置的运行环境全局变量
+test.del_global_variable("mobile")
+print(global_var)
+
+# 使用jsonpath提取响应中的数据，并保存到运行环境全局变量中
+value=test.json_extract(res,"$.description")
+test.save_global_variable("result",value)
+print(global_var)
+
+# 使用正则表达式提取响应中的数据，并保存到运行环境全局变量中
+value2 = test.re_extract(res,r"'(\w+?)': '")
+print(value2)
+value3 = test.re_extract_list(res,r"'(\w+?)':")
+print(value3)
+
+print("打印teardown临时环境变量")
+print(test.env["mobile"])
+
+# 对响应结果进行断言
+test.assertion("相等","登录成功",value)
+test.assertion("相等","登录成功1",value)
+test.assertion("包含","成功",value)

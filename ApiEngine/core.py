@@ -12,6 +12,7 @@ class TestRunner:
         self.cases = cases
         self.env_data = env_data
         self.result = []
+        self.c=BaseCase()
 
     def execute_cases(self):
         """执行测试用例的方法"""
@@ -98,23 +99,182 @@ class TestRunner:
 
     def perform_case(self, case,test_result):
         # 运行测试用例
-        c=BaseCase()
         try:
-            c.perform(case)
-        except AssertionError as e:
-            test_result.add_fail(c)
+            self.c.perform(case)
+        except AssertionError:
+            test_result.add_fail(self.c)
         except Exception as e:
-            test_result.add_error(c,e)
+            test_result.add_error(self.c,e)
         else:
-            test_result.add_success(c)
+            test_result.add_success(self.c)
+
 
 if __name__ == '__main__':
+    test_case = {
+        "title": "登录成功",
+       "interface": {
+            "url": "/member/public/login",
+             "method": "post"
+            },
+           "headers": {
+             "Content-Type": "application/x-www-form-urlencoded"
+         },
+         "request": {
+             "data": {
+                   "keywords": "13012341231",
+                   "password": "test123"
+               }
+           },
+           "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
+           "teardown_script": "",
+        # 数据提取
+        "extract": [
+            {"var_name":"status","extract_expr":"$.status"},
+            {"var_name": "description", "extract_expr": "$.description"}
+        ],
+    "assertions": [
+            {
+                "type": "相等",
+                "field": "$.status",
+                "expected": 200
+            },
+            {
+                "type": "相等",
+                "field": "$.description",
+                "expected": "登录成功"
+            }
+        ]
+     }
+    test_case2 = {
+        "title": "验证是否登录成功",
+       "interface": {
+            "url": "/member/public/islogin",
+             "method": "post"
+            },
+           "headers": {
+             # "Content-Type": "application/x-www-form-urlencoded"
+         },
+         "request": {
+             # "params": {
+             #       "m": "Home",
+             #       "c": "User",
+             #     "a":"do_login",
+             #        "t":"0.8035430559061323"
+             #   },
+             # "data": {
+             #     "username": "13800000001",
+             #     "password": "123456",
+             #     "verify_code": "8888"
+             # }
+           },
+    "preconditions": [
+        {
+            "title": "P2P登录成功",
+            "interface": {
+                "url": "/member/public/login",
+                "method": "post"
+            },
+            "headers": {
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            "request": {
+                "data": {
+                    "keywords": "13012341231",
+                    "password": "test123"
+                }
+            },
+            "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
+            "teardown_script": "",
+            # 数据提取
+            "extract": [
+                {"var_name": "status", "extract_expr": "$.status"},
+                {"var_name": "description", "extract_expr": "$.description"}
+            ],
+            "assertions": [
+                {
+                    "type": "相等",
+                    "field": "$.status",
+                    "expected": 200
+                },
+                {
+                    "type": "相等",
+                    "field": "$.description",
+                    "expected": "登录成功"
+                }
+            ]
+        }
+    ],
+           "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
+           "teardown_script": "",
+        # 数据提取
+        "extract": [
+            {"var_name":"status2","extract_expr":"$.status"},
+            {"var_name": "description2", "extract_expr": "$.description"}
+        ],
+    "assertions": [
+            {
+                "type": "相等",
+                "field": "$.status",
+                "expected": 200
+            },
+            {
+                "type": "相等",
+                "field": "$.description",
+                "expected": "OK"
+            }
+        ]
+    }
+    test_suite = {
+        "name": "测试套件1",
+        "cases": [
+            {
+                "title": "登录接口",
+                "interface": {
+                    "url": "/member/public/login",
+                    "method": "post"
+                },
+                "headers": {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Token": "${token}"
+                },
+                "request": {
+                    "params": {},
+                    "data": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
+                             "pwd2": "${password}", "mobile": "${mobile}"},
+                    "json": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
+                             "pwd2": "${password}", "mobile": "${mobile}"}
+                },
+                "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
+                "teardown_script": open("..\\tests\\teardown_scripts.txt", "r", encoding="utf-8").read()
+            },
+            {
+                "title": "登录接口2",
+                "interface": {
+                    "url": "/member/public/login",
+                    "method": "post"
+                },
+                "headers": {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Token": "${token}"
+                },
+                "request": {
+                    "params": {},
+                    "data": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
+                             "pwd2": "${password}", "mobile": "${mobile}"},
+                    "json": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
+                             "pwd2": "${password}", "mobile": "${mobile}"}
+                },
+                "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
+                "teardown_script": ""
+            }
+        ]
+    }
     test_suites = [
         {
             "name":"测试套件1",
             "cases":[
                 {
-                    "name": "登录接口",
+                    "title": "登录接口",
                     "interface": {
                         "url": "/member/public/login",
                         "method": "post"
@@ -126,7 +286,9 @@ if __name__ == '__main__':
                     "request": {
                         "params": {},
                         "data": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                                 "pwd2": "${password}", "mobile": "${mobile}"},
+                                 "pwd2": "${password}", "mob"
+                                                        ""
+                                                        "ile": "${mobile}"},
                         "json": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
                                  "pwd2": "${password}", "mobile": "${mobile}"}
                     },
@@ -134,7 +296,7 @@ if __name__ == '__main__':
                     "teardown_script": open("..\\tests\\teardown_scripts.txt", "r", encoding="utf-8").read()
                 },
                 {
-                    "name": "登录接口2",
+                    "title": "登录接口2",
                     "interface": {
                         "url": "/member/public/login",
                         "method": "post"
@@ -159,7 +321,7 @@ if __name__ == '__main__':
             "name": "测试套件2",
             "cases": [
                 {
-                    "name": "登录接口3",
+                    "title": "登录接口3",
                     "interface": {
                         "url": "/member/public/login",
                         "method": "post"
@@ -179,7 +341,7 @@ if __name__ == '__main__':
                     "teardown_script": open("..\\tests\\teardown_scripts.txt", "r", encoding="utf-8").read()
                 },
                 {
-                    "name": "登录接口4",
+                    "title": "登录接口4",
                     "interface": {
                         "url": "/member/public/login",
                         "method": "post"
@@ -204,6 +366,8 @@ if __name__ == '__main__':
     # 全局环境数据
     test_env_data = {
         "base_url": "http://121.43.169.97:8081",
+        # "base_url": "http://127.0.0.1",
+        # "base_url": "http://hmshop-test.itheima.net",
         "headers": {
             "Content-Type": "application/json"
         },
@@ -227,6 +391,8 @@ if __name__ == '__main__':
             }
         ]
     }
-    runner = TestRunner(test_suites, test_env_data)
+    runner = TestRunner(test_case2, test_env_data)
+    # runner = TestRunner(test_suite,test_env_data)
+    # runner = TestRunner(test_suites,test_env_data)
     result = runner.execute_cases()
     log.info_log("测试结果：", result)

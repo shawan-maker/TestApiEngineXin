@@ -10,6 +10,8 @@ db = DBClient()
 
 class BaseCase(CaseLogHandler):
     """用例执行基本父类"""
+    def __init__(self):
+        self.session = requests.Session()
 
     def __run_script(self, data):
         # 执行前后置脚本，可以在前后置脚本中共享数据
@@ -179,9 +181,9 @@ class BaseCase(CaseLogHandler):
         request_data = self.replace_data(request_data_for_replace)
         if files_raw is not None:
             request_data["files"] = files_raw
-        self.url = request_data["url"]
-        self.method = request_data["method"]
-        self.request_headers = request_data["headers"]
+        self.url = request_data.get("url","")
+        self.method = request_data.get("method","")
+        self.request_headers = request_data.get("headers", {})
         return request_data
 
     def __send_request(self, data):
@@ -205,19 +207,27 @@ class BaseCase(CaseLogHandler):
                 else:
                     converted[field] = val
             files_param = converted or None
-        response = requests.request(method=request_data.get("method"),
+        response = self.session.request(method=request_data.get("method"),
                                     url=request_data.get("url"),
                                     headers=request_data.get("headers"),
                                     params=request_data.get("params"),
                                     data=request_data.get("data"),
                                     json=request_data.get("json"),
-                                    files=files_param)
+                                    files=files_param,
+                                    allow_redirects=False)
         #  获取用例执行的请求和响应信息
         self.request_body = response.request.body
         self.status_code = response.status_code
         self.response_headers = response.headers
         self.response_body = response.text
-        self.info_log("请求地址:", self.url)
+        # 拼接完整URL（包含params参数）
+        full_url = self.url
+        params = request_data.get("params")
+        if params:
+            from urllib.parse import urlencode
+            query_string = urlencode(params)
+            full_url = f"{self.url}?{query_string}"
+        self.info_log("请求地址:", full_url)
         self.info_log("请求方法:", self.method)
         self.info_log("请求头:", self.request_headers)
         self.info_log("响应头:", self.response_headers)
@@ -225,13 +235,84 @@ class BaseCase(CaseLogHandler):
         self.info_log("响应体:", self.response_body)
         return response
 
+    def __extract_data(self, extract, response):
+        """
+        从响应中提取数据并保存到环境变量
+        :param extract: 提取规则，格式 ("变量名", "JSONPath表达式")
+                        例如 {"var_name":"user_id","extract_expr":"$.result.user_id"},
+        :param response: requests.Response 对象
+        """
+        # 1、解构元组：(变量名, 提取表达式)
+        var_name = extract.get("var_name")
+        extract_expr = extract.get("extract_expr")
+        # 2、将响应体解析为 JSON/dict
+        try:
+            resp_json = response.json()
+        except Exception:
+            resp_json = {}
+            self.error_log("响应体非JSON格式，无法提取数据")
+        # 3、通过 JSONPath 提取值
+        extracted_value = self.json_extract(resp_json, extract_expr)
+        # 4、保存到环境变量（后续用 ${user_id} 引用）
+        self.save_env_variable(var_name, extracted_value)
+        self.info_log(f"数据提取成功：{var_name} = {extracted_value}")
+
+    def __assert_data(self, assertion, response):
+        """
+        断言响应数据
+        :param assertion: 断言规则，格式                        {
+                "type": "相等",
+                "field": "$.msg",
+                "expected": "登陆成功"
+            }
+        :param response: requests.Response 对象
+        """
+        # 1、解构元组
+        assertion_type = assertion.get("type")
+        extract_expr = assertion.get("field")
+        assertion_content = assertion.get("expected")
+        # 2、将响应体解析为 JSON/dict
+        try:
+            resp_json = response.json()
+        except Exception:
+            resp_json = {}
+            self.error_log("响应体非JSON格式，无法提取数据")
+        # 3、通过 JSONPath 提取值
+        extracted_value = self.json_extract(resp_json, extract_expr)
+        # 4、断言
+        self.assertion(assertion_type, assertion_content, extracted_value)
+
     def perform(self, data):
         """执行用例"""
         start_time = time.time()
         try:
+            # 1、判断是否有前置步骤 preconditions
+            if data.get("preconditions"):
+                for step in data.get("preconditions"):
+                    self.info_log(f"开始执行前置步骤:{step.get('title')}")
+                    self.__setup_script(step)
+                    response = self.__send_request(step)
+                    # 判断是否有数据提取
+                    if step.get("extract"):
+                        for extract in step.get("extract"):
+                            self.__extract_data(extract, response)
+                    self.__teardown_script(step, response)
+                    self.info_log(f"结束执行前置步骤:{step.get('title')}")
+            # 2、执行测试用例（前置 - 测试用例）
+            self.info_log(f"开始执行用例步骤:{data.get('title')}")
             self.__setup_script(data)
             response = self.__send_request(data)
+            # 3、判断是否有数据提取
+            if data.get("extract"):
+                for extract in data.get("extract"):
+                    self.__extract_data(extract, response)
+           # 4、判断是否有断言
+            if data.get("assertions"):
+                for assertion in data.get("assertions"):
+                    self.__assert_data(assertion, response)
+            # 5、执行后置步骤
             self.__teardown_script(data, response)
+            self.info_log(f"结束执行用例步骤:{data.get('title')}")
         finally:
             end_time = time.time()
             elapsed_time = end_time - start_time
@@ -345,18 +426,55 @@ class BaseCase(CaseLogHandler):
         :param actual: 断言的实际结果
         :return:
         """
-        # 1、断言的方法
+        # 1、断言的方法（支持中英文关键字）
         method_map = {
+            # 相等
             "相等": lambda a,b: a == b,
+            "equals": lambda a,b: a == b,
+            "eq": lambda a,b: a == b,
+            "==": lambda a,b: a == b,
+            # 相等忽略大小写
             "相等忽略大小写": lambda a, b: a.lower() == b.lower(),
+            "equals_ignore_case": lambda a, b: a.lower() == b.lower(),
+            "eq_ignore_case": lambda a, b: a.lower() == b.lower(),
+            # 不相等
             "不相等":  lambda a,b: a != b,
+            "not_equals": lambda a,b: a != b,
+            "ne": lambda a,b: a != b,
+            "!=": lambda a,b: a != b,
+            # 包含
             "包含": lambda a,b: a in b,
+            "contains": lambda a,b: a in b,
+            "in": lambda a,b: a in b,
+            # 不包含
             "不包含": lambda a,b: a not in b,
+            "not_contains": lambda a,b: a not in b,
+            "not_in": lambda a,b: a not in b,
+            # 大于
             "大于": lambda a,b: a > b,
+            "greater_than": lambda a,b: a > b,
+            "gt": lambda a,b: a > b,
+            ">": lambda a,b: a > b,
+            # 小于
             "小于": lambda a,b: a < b,
+            "less_than": lambda a,b: a < b,
+            "lt": lambda a,b: a < b,
+            "<": lambda a,b: a < b,
+            # 大于等于
             "大于等于": lambda a,b: a >= b,
+            "greater_than_or_equals": lambda a,b: a >= b,
+            "ge": lambda a,b: a >= b,
+            ">=": lambda a,b: a >= b,
+            # 小于等于
             "小于等于": lambda a,b: a <= b,
-            "正则匹配": lambda a,b: re.search(a,b)
+            "less_than_or_equals": lambda a,b: a <= b,
+            "le": lambda a,b: a <= b,
+            "<=": lambda a,b: a <= b,
+            # 正则匹配
+            "正则匹配": lambda a,b: re.search(a,b),
+            "regex_match": lambda a,b: re.search(a,b),
+            "regex": lambda a,b: re.search(a,b),
+            "match": lambda a,b: re.search(a,b)
         }
         # 2、断言操作
         assert_fun = method_map.get(method)
