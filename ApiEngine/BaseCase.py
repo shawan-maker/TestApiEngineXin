@@ -2,7 +2,7 @@ import re,time
 import requests
 from jsonpath import jsonpath
 from . import global_func,log
-from .caseLog import CaseLogHandler
+from .caseLog import CaseLogHandler, PreconditionChainError
 from .dbClient import DBClient
 # 定义脚本中的全局变量
 ENV = {}
@@ -282,22 +282,109 @@ class BaseCase(CaseLogHandler):
         # 4、断言
         self.assertion(assertion_type, assertion_content, extracted_value)
 
+    def __execute_preconditions(self, steps, depth=1,failure_mode="continue"):
+        """
+        递归执行多级前置接口（深度优先 DFS）
+        容错模式：单步失败记录错误，不影响后续步骤执行
+        """
+        if not steps:
+            return
+
+        prefix = "  " * depth
+        # 前置步骤整体状态记录
+        precondition_errors = []  # 收集所有前置步骤的错误
+
+        for step in steps:
+            title = step.get('title', '未命名前置')
+            # failure_mode = step.get('on_failure', 'continue')  # 默认容错继续
+
+            self.info_log(f"{prefix}▶ [L{depth}] 执行前置步骤: {title}")
+
+            # ★ 递归子前置（也带容错）
+            if step.get("preconditions"):
+                self.info_log(f"{prefix}  [L{depth}] '{title}' 有下级前置，先递归执行")
+                child_errors = self.__execute_preconditions(
+                    step.get("preconditions"), depth + 1
+                )
+                if child_errors:
+                    precondition_errors.extend(child_errors)
+                    self.warning_log(f"{prefix}  [L{depth}] 子前置存在 {len(child_errors)} 个错误")
+                self.info_log(f"{prefix}  [L{depth}] '{title}' 的下级前置完成，开始执行自身")
+
+            # ★ 单步 try-except 容错包裹
+            step_error = None
+            response= None
+            try:
+                self.__setup_script(step)
+                response = self.__send_request(step)
+
+                # 数据提取
+                if step.get("extract"):
+                    for extract in step.get("extract"):
+                        self.__extract_data(extract, response)
+
+                # 断言（这里可能抛 AssertionError）
+                if step.get("assertions"):
+                    for assertion in step.get("assertions"):
+                        self.__assert_data(assertion, response)
+
+            except AssertionError as e:
+                step_error = {
+                    "level": depth,
+                    "step_title": title,
+                    "error_type": "ASSERTION_FAILED",
+                    "message": str(e)
+                }
+                self.error_log(f"{prefix}❌ [L{depth}] 前置断言失败: {title} — {e}")
+
+            except Exception as e:
+                step_error = {
+                    "level": depth,
+                    "step_title": title,
+                    "error_type": "EXECUTION_ERROR",
+                    "message": str(e)
+                }
+                self.error_log(f"{prefix}❌ [L{depth}] 前置执行异常: {title} — {e}")
+
+            finally:
+            # 确保 teardown 在任何情况下都执行（如果 setup 已执行成功）
+            # 注意：如果 __setup_script 都失败了，teardown 不应再执行
+                self.__teardown_script(step, response)
+                self.info_log(f"{prefix}✅ [L{depth}] 前置完成: {title}")
+
+            # ★ 根据 on_failure 决定是否继续
+            if step_error:
+                precondition_errors.append(step_error)
+                if failure_mode == "stop":
+                    self.error_log(f"{prefix}🛑 [L{depth}] 配置 on_failure=stop，中止执行")
+                    # 将收集到的所有错误抛出给上层或 perform 处理
+                    raise PreconditionChainError(precondition_errors)
+            # 如果是 continue 模式，即使出错也继续下一个步骤
+            # 但注意：extract 失败意味着某些变量可能未设置，
+            # 后续步骤引用这些变量时会得到空值
+
+        return precondition_errors  # 返回本层所有错误供上级参考
+
+
     def perform(self, data):
         """执行用例"""
         start_time = time.time()
+        self._precondition_errors = []  # 记录前置错误（供结果查询）
+
         try:
-            # 1、判断是否有前置步骤 preconditions
+            # 1、判断是否有前置步骤 preconditions（支持多级嵌套递归）
             if data.get("preconditions"):
-                for step in data.get("preconditions"):
-                    self.info_log(f"开始执行前置步骤:{step.get('title')}")
-                    self.__setup_script(step)
-                    response = self.__send_request(step)
-                    # 判断是否有数据提取
-                    if step.get("extract"):
-                        for extract in step.get("extract"):
-                            self.__extract_data(extract, response)
-                    self.__teardown_script(step, response)
-                    self.info_log(f"结束执行前置步骤:{step.get('title')}")
+                self.info_log("========== 开始执行前置步骤链 ==========")
+                self._precondition_errors = self.__execute_preconditions(
+                    data.get("preconditions"), depth=1
+                )
+                if self._precondition_errors:
+                    self.warning_log(
+                        f"前置步骤链完成，但有 {len(self._precondition_errors)} 个步骤失败，"
+                        f"继续执行主用例"
+                    )
+                else:
+                    self.info_log("========== 前置步骤链全部通过 ==========")
             # 2、执行测试用例（前置 - 测试用例）
             self.info_log(f"开始执行用例步骤:{data.get('title')}")
             self.__setup_script(data)

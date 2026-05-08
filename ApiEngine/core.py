@@ -155,12 +155,12 @@ if __name__ == '__main__':
              # "Content-Type": "application/x-www-form-urlencoded"
          },
          "request": {
-             # "params": {
-             #       "m": "Home",
-             #       "c": "User",
-             #     "a":"do_login",
-             #        "t":"0.8035430559061323"
-             #   },
+             "params": {
+                   "m": "Home",
+                   "c": "User",
+                 "a":"do_login",
+                    "t":"${status}"
+               },
              # "data": {
              #     "username": "13800000001",
              #     "password": "123456",
@@ -180,11 +180,50 @@ if __name__ == '__main__':
             "request": {
                 "data": {
                     "keywords": "13012341231",
-                    "password": "test123"
+                    "password": "test123",
+                    "description":"${description3}"
                 }
             },
             "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
             "teardown_script": "",
+            "preconditions": [
+                {
+                    "title": "验证当前用户没有登录",
+                    "interface": {
+                        "url": "/member/public/islogin",
+                        "method": "post"
+                    },
+                    "headers": {
+                        # "Content-Type": "application/x-www-form-urlencoded"
+                    },
+                    "request": {
+                        # "data": {
+                        #     "keywords": "13012341231",
+                        #     "password": "test123"
+                        # }
+                    },
+                    "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
+                    "teardown_script": "",
+
+                    # 数据提取
+                    "extract": [
+                        {"var_name": "status3", "extract_expr": "$.status"},
+                        {"var_name": "description3", "extract_expr": "$.description"}
+                    ],
+                    "assertions": [
+                        {
+                            "type": "相等",
+                            "field": "$.status",
+                            "expected": 200
+                        },
+                        {
+                            "type": "相等",
+                            "field": "$.description",
+                            "expected": "您未登陆！"
+                        }
+                    ]
+                }
+            ],
             # 数据提取
             "extract": [
                 {"var_name": "status", "extract_expr": "$.status"},

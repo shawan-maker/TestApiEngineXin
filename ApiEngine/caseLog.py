@@ -38,3 +38,10 @@ class CaseLogHandler:
         """记录critical日志"""
         msg = " ".join([str(i) for i in args])
         self.save_log(msg,"CRITICAL")
+
+
+class PreconditionChainError(Exception):
+    """前置条件链执行错误（用于 stop 模式中止）"""
+    def __init__(self, errors):
+        self.errors = errors  # 所有收集到的步骤错误
+        super().__init__(f"前置条件链中止，共 {len(errors)} 个错误")
