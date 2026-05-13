@@ -4,41 +4,39 @@ from ApiEngine.testResult import TestResult
 
 
 class TestRunner:
-    def __init__(self, cases, env_data):
+    def __init__(self, env_data):
         """
-        :param cases: 要执行的测试数据
         :param env_data: 执行测试时的环境数据
         """
-        self.cases = cases
         self.env_data = env_data
         self.result = []
         self.c=BaseCase()
 
-    def execute_cases(self):
+    def execute_cases(self,testcases):
         """执行测试用例的方法"""
         # 根据数据库的配置初始化数据库的连接
         db.init_connent(self.env_data.pop("db"))
         # 判断测试数据参数的类型
-        if isinstance(self.cases, dict):
-            cases = self.cases.get("cases")
+        if isinstance(testcases, dict):
+            cases = testcases.get("cases")
             if cases:
-                log.info_log("执行测试套件：",self.cases["name"])
+                log.info_log("执行测试套件：",testcases["name"])
                 # 将全局环境测试加载到ENV中
                 ENV.clear()
                 ENV.update(self.env_data)
                 # 将tools中的函数（用户自定义），通过exec执行（字符串中的python函数），加载到TestTools模块的命名空间中
                 exec(ENV.get("global_func"), global_func.__dict__)
                 # 创建测试结果的记录器
-                test_result = TestResult(all=len(self.cases["cases"]),name=self.cases["name"])
+                test_result = TestResult(all=len(testcases["cases"]),name=testcases["name"])
                 # 运行测试用例
-                for case in self.cases["cases"]:
+                for case in testcases["cases"]:
                     log.info_log(case)
                     self.perform_case(case,test_result)
                 # 获取测试结果执行记录器中的结果
                 res = test_result.get_result_info()
                 self.result.append(res)
             else:
-                log.info_log("调试单条接口用例：",self.cases["title"])
+                log.info_log("调试单条接口用例：",testcases["title"])
                 # 将全局环境测试加载到ENV中
                 ENV.clear()
                 ENV.update(self.env_data)
@@ -46,15 +44,15 @@ class TestRunner:
                 exec(ENV.get("global_func"), global_func.__dict__)
                 # 创建测试结果的记录器
                 test_result = TestResult(all=1)
-                # log.info_log("执行测试用例：",self.cases)
-                self.perform_case(self.cases, test_result)
+                # log.info_log("执行测试用例：",testcases)
+                self.perform_case(testcases, test_result)
                 # 获取测试结果执行记录器中的结果
                 res = test_result.get_result_info()
                 self.result = res["cases"][0]
-        elif isinstance(self.cases, list):
+        elif isinstance(testcases, list):
             # 遍历所有测试用例
             results = []
-            for items in self.cases:
+            for items in testcases:
                 log.info_log("执行测试套件：",items["name"])
                 # 将全局环境测试加载到ENV中
                 ENV.clear()
@@ -430,8 +428,11 @@ if __name__ == '__main__':
             }
         ]
     }
-    runner = TestRunner(test_case2, test_env_data)
+    runner = TestRunner(test_env_data)
     # runner = TestRunner(test_suite,test_env_data)
     # runner = TestRunner(test_suites,test_env_data)
-    result = runner.execute_cases()
+    # result = runner.execute_cases(test_case)
+    result = runner.execute_cases(test_case2)
+    # result = runner.execute_cases(test_suite)
+    # result = runner.execute_cases(test_suites)
     log.info_log("测试结果：", result)
