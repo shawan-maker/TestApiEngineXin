@@ -156,7 +156,7 @@ if __name__ == '__main__':
              "params": {
                    "m": "Home",
                    "c": "User",
-                 "a":"do_login",
+                    "a":"do_login",
                     "t":"${status}"
                },
              # "data": {
@@ -429,8 +429,6 @@ if __name__ == '__main__':
         ]
     }
     runner = TestRunner(test_env_data)
-    # runner = TestRunner(test_suite,test_env_data)
-    # runner = TestRunner(test_suites,test_env_data)
     # result = runner.execute_cases(test_case)
     result = runner.execute_cases(test_case2)
     # result = runner.execute_cases(test_suite)

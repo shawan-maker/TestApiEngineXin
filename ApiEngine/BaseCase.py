@@ -166,11 +166,12 @@ class BaseCase(CaseLogHandler):
         request_data["headers"].update(data.get("headers"))
         # 3、处理请求参数
         request_data["params"] = data.get("request").get("params")
-        if "application/json" in request_data["headers"].get("Content-Type"):
+        content_type = request_data["headers"].get("Content-Type", "")
+        if "application/json" in content_type:
             request_data["json"] = data.get("request").get("json")
-        elif "application/x-www-form-urlencoded" in request_data["headers"].get("Content-Type"):
+        if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
             request_data["data"] = data.get("request").get("data")
-        elif "multipart/form-data" in request_data["headers"].get("Content-Type"):
+        if "multipart/form-data" in content_type:
             # 注意：这里不直接把 files 放进需要做变量替换的数据里，避免 open 文件对象被 eval 破坏
             request_data["files"] = data.get("request").get("files")
         # 4、替换请求中的变量名 为 具体的变量数据（files 保持原值）
@@ -191,49 +192,101 @@ class BaseCase(CaseLogHandler):
         request_data = self.__handle_request_data(data)
         self.info_log(request_data)
         files_param = request_data.get("files")
-        # 兼容占位结构：{field: {'path': 'xxx', 'name': 'filename'}} → 转为 requests 可识别的 (name, fileobj)
+        # ★ 新增：用于跟踪已打开的文件句柄（便于后续统一关闭）
+        opened_files = []
+        # 执行文件转换
         if isinstance(files_param, dict):
-            converted = {}
-            for field, val in files_param.items():
-                if isinstance(val, dict) and "path" in val:
-                    try:
-                        import os
-                        file_path = val["path"]
-                        filename = val.get("name") or os.path.basename(file_path)
-                        f = open(file_path, "rb")
-                        converted[field] = (filename, f)
-                    except Exception:
-                        continue
-                else:
-                    converted[field] = val
-            files_param = converted or None
-        response = self.session.request(method=request_data.get("method"),
-                                    url=request_data.get("url"),
-                                    headers=request_data.get("headers"),
-                                    params=request_data.get("params"),
-                                    data=request_data.get("data"),
-                                    json=request_data.get("json"),
-                                    files=files_param,
-                                    allow_redirects=False)
-        #  获取用例执行的请求和响应信息
-        self.request_body = response.request.body
-        self.status_code = response.status_code
-        self.response_headers = response.headers
-        self.response_body = response.text
-        # 拼接完整URL（包含params参数）
-        full_url = self.url
-        params = request_data.get("params")
-        if params:
-            from urllib.parse import urlencode
-            query_string = urlencode(params)
-            full_url = f"{self.url}?{query_string}"
-        self.info_log("请求地址:", full_url)
-        self.info_log("请求方法:", self.method)
-        self.info_log("请求头:", self.request_headers)
-        self.info_log("响应头:", self.response_headers)
-        self.info_log("请求体:", self.request_body)
-        self.info_log("响应体:", self.response_body)
-        return response
+            files_param, new_opened = self.convert_files(files_param)
+            opened_files.extend(new_opened)
+        try:
+            response = self.session.request(method=request_data.get("method"),
+                                        url=request_data.get("url"),
+                                        headers=request_data.get("headers"),
+                                        params=request_data.get("params"),
+                                        data=request_data.get("data"),
+                                        json=request_data.get("json"),
+                                        files=files_param,
+                                        allow_redirects=False)
+            #  获取用例执行的请求和响应信息
+            self.request_body = response.request.body
+            self.status_code = response.status_code
+            self.response_headers = response.headers
+            self.response_body = response.text
+            # 拼接完整URL（包含params参数）
+            full_url = self.url
+            params = request_data.get("params")
+            if params:
+                from urllib.parse import urlencode
+                query_string = urlencode(params)
+                full_url = f"{self.url}?{query_string}"
+            self.info_log("请求地址:", full_url)
+            self.info_log("请求方法:", self.method)
+            self.info_log("请求头:", self.request_headers)
+            self.info_log("响应头:", self.response_headers)
+            self.info_log("请求体:", self.request_body)
+            self.info_log("响应体:", self.response_body)
+            return response
+        finally:
+            # ★ 统一关闭所有打开的文件句柄（防止资源泄漏）
+            for f in opened_files:
+                try:
+                    f.close()
+                except Exception:
+                    pass
+            if opened_files:
+                self.info_log(f"已关闭 {len(opened_files)} 个文件句柄")
+
+    def convert_files(self,param):
+        """递归转换文件参数，返回 (converted_dict, opened_files_list)"""
+        local_opened = []
+
+        if not isinstance(param, dict):
+            return param
+
+        converted = {}
+        for field, val in param.items():
+            if isinstance(val, dict) and "path" in val:
+                # 格式 A: {"path": "...", "name": "..."}
+                try:
+                    import os
+                    file_path = val["path"]
+                    filename = val.get("name") or os.path.basename(file_path)
+                    # ★ 修复：不用 with，手动管理文件句柄
+                    f = open(file_path, "rb")
+                    local_opened.append(f)
+                    self.info_log(f"成功加载文件: {field} = {filename}")
+                    converted[field] = (filename, f)
+                except Exception as e:
+                    self.error_log(f"文件加载失败 [{val.get('path')}]: {e}")
+
+            elif isinstance(val, list):
+                # 格式 C: 列表格式（单字段多文件）
+                file_list = []
+                for item in val:
+                    if isinstance(item, tuple) and len(item) == 2:
+                        # 已经是 (filename, fileobj) 元组
+                        file_list.append(item)
+                    elif isinstance(item, dict) and "path" in item:
+                        try:
+                            import os
+                            fp = item["path"]
+                            fn = item.get("name") or os.path.basename(fp)
+                            # ★ 修复：不用 with
+                            f = open(fp, "rb")
+                            local_opened.append(f)
+                            file_list.append((fn, f))
+                        except Exception as e:
+                            self.error_log(f"列表项文件加载失败 [{item.get('path')}]: {e}")
+                    else:
+                        # 其他格式直接使用
+                        file_list.append(item)
+                if file_list:
+                    converted[field] = file_list
+            else:
+                # 格式 B: 直接传值/元组
+                converted[field] = val
+
+        return converted if converted else None, local_opened
 
     def __extract_data(self, extract, response):
         """
