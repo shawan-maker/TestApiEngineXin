@@ -271,6 +271,12 @@ class BaseCase(CaseLogHandler):
         assertion_type = assertion.get("type")
         extract_expr = assertion.get("field")
         assertion_content = assertion.get("expected")
+        # ★ 核心修复：对 expected 字段进行变量替换
+        # 支持格式：${var_name} → 替换为实际值
+        if isinstance(assertion_content, str) and "${" in assertion_content:
+            self.info_log(f"检测到断言期望值包含变量引用：{assertion_content}")
+            assertion_content = self.replace_data(assertion_content)
+            self.info_log(f"变量替换后期望值：{assertion_content}")
         # 2、将响应体解析为 JSON/dict
         try:
             resp_json = response.json()
@@ -370,7 +376,7 @@ class BaseCase(CaseLogHandler):
         """执行用例"""
         start_time = time.time()
         self._precondition_errors = []  # 记录前置错误（供结果查询）
-
+        case_name = data.get('title')
         try:
             # 1、判断是否有前置步骤 preconditions（支持多级嵌套递归）
             if data.get("preconditions"):
@@ -386,7 +392,7 @@ class BaseCase(CaseLogHandler):
                 else:
                     self.info_log("========== 前置步骤链全部通过 ==========")
             # 2、执行测试用例（前置 - 测试用例）
-            self.info_log(f"开始执行用例步骤:{data.get('title')}")
+            self.info_log(f"开始执行用例步骤:{case_name}")
             self.__setup_script(data)
             response = self.__send_request(data)
             # 3、判断是否有数据提取
@@ -399,11 +405,29 @@ class BaseCase(CaseLogHandler):
                     self.__assert_data(assertion, response)
             # 5、执行后置步骤
             self.__teardown_script(data, response)
-            self.info_log(f"结束执行用例步骤:{data.get('title')}")
+            self.info_log(f"结束执行用例步骤:{case_name}")
+        except AssertionError as e:
+            step_error = {
+                "level": 0,
+                "step_title": case_name,
+                "error_type": "ASSERTION_FAILED",
+                "message": str(e)
+            }
+            self.error_log(f" ❌用例断言失败: {case_name} — {e}")
+
+        except Exception as e:
+            step_error = {
+                "level": 0,
+                "step_title": case_name,
+                "error_type": "EXECUTION_ERROR",
+                "message": str(e)
+            }
+            self.error_log(f" ❌用例执行异常: {case_name} — {e}")
         finally:
             end_time = time.time()
             elapsed_time = end_time - start_time
             self.elapsed_ms = "{} ms".format(int(elapsed_time * 1000))
+            self.info_log(f"✅ 用例执行完成:{case_name}")
 
     def save_env_variable(self, key, value):
         """保存测试运行环境变量"""

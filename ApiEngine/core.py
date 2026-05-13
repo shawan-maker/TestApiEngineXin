@@ -254,7 +254,7 @@ if __name__ == '__main__':
             {
                 "type": "相等",
                 "field": "$.status",
-                "expected": 200
+                "expected": "${status3}"
             },
             {
                 "type": "相等",
