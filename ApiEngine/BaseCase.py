@@ -331,15 +331,69 @@ class BaseCase(CaseLogHandler):
             assertion_content = self.replace_data(assertion_content)
             self.info_log(f"变量替换后期望值：{assertion_content}")
         # 2、将响应体解析为 JSON/dict
-        try:
-            resp_json = response.json()
-        except Exception:
-            resp_json = {}
-            self.error_log("响应体非JSON格式，无法提取数据")
-        # 3、通过 JSONPath 提取值
-        extracted_value = self.json_extract(resp_json, extract_expr)
-        # 4、断言
+        # ★ 新增：特殊字段处理 —— status_code 直接取 HTTP 状态码
+        if extract_expr == "status_code":
+            extracted_value = response.status_code
+            self.info_log(f"检测到断言字段为 status_code，直接获取 HTTP 状态码：{extracted_value}")
+        else:
+            try:
+                resp_json = response.json()
+            except Exception:
+                resp_json = {}
+                self.error_log("响应体非JSON格式，无法提取数据")
+            # 3、通过 JSONPath 提取值
+            extracted_value = self.json_extract(resp_json, extract_expr)
+            # 4、断言
         self.assertion(assertion_type, assertion_content, extracted_value)
+
+    # 遍历所有assertions项，依次执行断言
+    def __execute_assertions(self, data, response):
+        # ★ 新增：收集断言错误列表
+        assertion_errors = []
+        if data.get("assertions"):
+            total = len(data.get("assertions"))
+            self.info_log(f"========== 开始执行断言（共 {total} 个） ==========")
+            for idx, assertion in enumerate(data.get("assertions"), start=1):
+                field = assertion.get("field", "未知")
+                expected = assertion.get("expected", "未知")
+                try:
+                    self.info_log(f"  [{idx}/{total}] 执行断言: field={field}, expected={expected}")
+                    self.__assert_data(assertion, response)
+                    self.info_log(f"  [{idx}/{total}] ✅ 断言通过: {field}")
+                except AssertionError as e:
+                    self.error_log(f"  [{idx}/{total}] ❌ 断言失败: {field} — {e}")
+                    assertion_errors.append({
+                        "index": idx,
+                        "field": field,
+                        "expected": expected,
+                        "error_type": "ASSERTION_FAILED",
+                        "message": str(e)
+                    })
+            # 所有断言执行完毕后输出汇总
+            passed_count = total - len(assertion_errors)
+            if assertion_errors:
+                self.warning_log(
+                    f"========== 断言汇总：共 {total} 个，"
+                    f"通过 {passed_count} 个，失败 {len(assertion_errors)} 个 =========="
+                )
+                for err in assertion_errors:
+                    self.warning_log(
+                        f"  ❌ [第{err['index']}个] field={err['field']}, "
+                        f"expected={err['expected']}, 原因: {err['message']}"
+                    )
+            else:
+                self.info_log(f"========== 断言汇总：{total} 个全部通过 ✅ ==========")
+
+            # ★ 如果有失败的断言，最终抛出一个聚合的 AssertionError
+            if assertion_errors:
+                fail_details = "; ".join(
+                    f"[{err['field']}] {err['message']}" for err in assertion_errors
+                )
+                raise AssertionError(
+                    f"用例 [{data.get('title')}] 断言失败："
+                    f"通过 {passed_count}/{total}，"
+                    f"失败详情 → {fail_details}"
+                )
 
     def __execute_preconditions(self, steps, depth=1,failure_mode="continue"):
         """
@@ -382,19 +436,8 @@ class BaseCase(CaseLogHandler):
                     for extract in step.get("extract"):
                         self.__extract_data(extract, response)
 
-                # 断言（这里可能抛 AssertionError）
-                if step.get("assertions"):
-                    for assertion in step.get("assertions"):
-                        self.__assert_data(assertion, response)
-
-            except AssertionError as e:
-                step_error = {
-                    "level": depth,
-                    "step_title": title,
-                    "error_type": "ASSERTION_FAILED",
-                    "message": str(e)
-                }
-                self.error_log(f"{prefix}❌ [L{depth}] 前置断言失败: {title} — {e}")
+                # 断言(批量执行所有的断言)
+                self.__execute_assertions(step, response)
 
             except Exception as e:
                 step_error = {
@@ -452,21 +495,11 @@ class BaseCase(CaseLogHandler):
             if data.get("extract"):
                 for extract in data.get("extract"):
                     self.__extract_data(extract, response)
-           # 4、判断是否有断言
-            if data.get("assertions"):
-                for assertion in data.get("assertions"):
-                    self.__assert_data(assertion, response)
+            # ★ 4、断言部分 —— 容错模式：全部执行完再汇总结果
+            self.__execute_assertions(data,response)
             # 5、执行后置步骤
             self.__teardown_script(data, response)
             self.info_log(f"结束执行用例步骤:{case_name}")
-        except AssertionError as e:
-            step_error = {
-                "level": 0,
-                "step_title": case_name,
-                "error_type": "ASSERTION_FAILED",
-                "message": str(e)
-            }
-            self.error_log(f" ❌用例断言失败: {case_name} — {e}")
 
         except Exception as e:
             step_error = {
@@ -640,6 +673,9 @@ class BaseCase(CaseLogHandler):
             "regex": lambda a,b: re.search(a,b),
             "match": lambda a,b: re.search(a,b)
         }
+        # ★ 新增：智能类型兼容处理
+        # 场景：expect="200"(str), actual=200(int) → 自动转一致后再比较
+        expect, actual = self._normalize_for_compare(expect, actual)
         # 2、断言操作
         assert_fun = method_map.get(method)
         if assert_fun is None:
@@ -655,3 +691,30 @@ class BaseCase(CaseLogHandler):
             raise AssertionError(f"断言失败，实际结果({actual}) 不满足({method}) 期望结果({expect})")
         else:
             self.info_log(f"断言成功，实际结果({actual}) 满足({method}) 期望结果({expect})")
+
+    def _normalize_for_compare(self, expect, actual):
+        """
+        智能类型归一化，解决 str/int/float 类型不一致导致的断言失败
+        """
+        # 如果两者类型已经相同，直接返回
+        if type(expect) == type(actual):
+            return expect, actual
+
+        # 尝试将 expect 转为 actual 的类型
+        try:
+            if isinstance(actual, (int, float)) and isinstance(expect, str):
+                # actual 是数字, expect 是字符串 → 尝试将 expect 转为数字
+                if '.' in str(expect):
+                    return float(expect), actual
+                else:
+                    return int(expect), actual
+            elif isinstance(expect, (int, float)) and isinstance(actual, str):
+                # expect 是数字, actual 是字符串 → 尝试将 actual 转为数字
+                if '.' in str(actual):
+                    return expect, float(actual)
+                else:
+                    return expect, int(actual)
+        except (ValueError, TypeError):
+            pass  # 转换失败，保持原值
+
+        return expect, actual
