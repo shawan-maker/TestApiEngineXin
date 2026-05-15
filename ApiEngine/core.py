@@ -1,8 +1,8 @@
 from ApiEngine import global_func,log
-from ApiEngine.BaseCase import BaseCase, db, ENV
+from ApiEngine.BaseCase import BaseCase, ENV
 from ApiEngine.caseLog import PreconditionChainError
 from ApiEngine.testResult import TestResult
-
+from ApiEngine.dbClient import DBClient
 
 class TestRunner:
     def __init__(self, env_data):
@@ -12,11 +12,17 @@ class TestRunner:
         self.env_data = env_data
         self.result = []
         self.c=BaseCase()
+        # ★ 方案B核心：每个 TestRunner 持有独立的 DBClient 实例
+        # 这样多线程并发时，每个线程有自己的数据库连接互不干扰
+        self._db = DBClient()
 
     def execute_cases(self,testcases):
         """执行测试用例的方法"""
         # 根据数据库的配置初始化数据库的连接
-        db.init_connent(self.env_data.pop("db"))
+        # ★ 改动1：使用 self._db（实例级）代替 db（全局单例）
+        db_config = self.env_data.pop("db", None)
+        if db_config:
+            self._db.init_connent(db_config)
         # 判断测试数据参数的类型
         if isinstance(testcases, dict):
             cases = testcases.get("cases")
@@ -92,7 +98,9 @@ class TestRunner:
         else:
             log.error_log("测试数据格式错误")
         # 断开数据库连接
-        db.close_db_connent()
+        # ★ 改动2：使用 self._db 关闭自己的连接（不影响其他线程）
+        if db_config:
+            self._db.close_db_connent()
         # 返回用例执行结果
         return self.result
 

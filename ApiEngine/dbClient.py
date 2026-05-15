@@ -23,8 +23,19 @@ class DBBase:
 
     def close_db(self):
         """关闭数据库连接"""
-        self.cursor.close()
-        self.conn.close()
+        try:
+            if self.cursor:
+                self.cursor.close()
+        except Exception:
+            pass
+        try:
+            if self.conn:
+                self.conn.close()
+        except Exception:
+            pass
+        self.cursor = None
+        self.conn = None
+
 
 class MysqlDb(DBBase):
     def __init__(self,db_config):

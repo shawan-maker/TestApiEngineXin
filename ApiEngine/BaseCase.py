@@ -439,6 +439,9 @@ class BaseCase(CaseLogHandler):
                 # 断言(批量执行所有的断言)
                 self.__execute_assertions(step, response)
 
+            except AssertionError as e:
+                self.warning_log(f"{prefix}❌ [L{depth}] 存在断言失败: {title} — {e}")
+
             except Exception as e:
                 step_error = {
                     "level": depth,
