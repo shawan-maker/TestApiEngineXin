@@ -473,6 +473,7 @@ class BaseCase(CaseLogHandler):
         start_time = time.time()
         self._precondition_errors = []  # 记录前置错误（供结果查询）
         case_name = data.get('title')
+        has_failure = False  # ★ 新增：失败标志位
         try:
             # 1、判断是否有前置步骤 preconditions（支持多级嵌套递归）
             if data.get("preconditions"):
@@ -481,6 +482,7 @@ class BaseCase(CaseLogHandler):
                     data.get("preconditions"), depth=1
                 )
                 if self._precondition_errors:
+                    has_failure = True  # ★ 前置有失败
                     self.warning_log(
                         f"前置步骤链完成，但有 {len(self._precondition_errors)} 个步骤失败，"
                         f"继续执行主用例"
@@ -500,6 +502,20 @@ class BaseCase(CaseLogHandler):
             # 5、执行后置步骤
             self.__teardown_script(data, response)
             self.info_log(f"结束执行用例步骤:{case_name}")
+            # ★ 新增：try块结束时检查前置是否有失败
+            if has_failure:
+                # 前置有断言/执行失败，但主用例可能通过了
+                # 需要通知上层这个用例整体不算成功
+                raise AssertionError(
+                    f"[{case_name}] 用例执行完成但存在 {len(self._precondition_errors)} 个前置失败"
+                )
+
+        except AssertionError as e:
+            # ★ 断言失败 —— 不吞掉
+            has_failure = True
+            self.warning_log(f"⚠️ 用例 [{case_name}] 存在失败断言")
+            # 让异常继续传播给上层
+            raise  # ← 关键：重新抛出！
 
         except Exception as e:
             step_error = {
@@ -509,6 +525,7 @@ class BaseCase(CaseLogHandler):
                 "message": str(e)
             }
             self.error_log(f" ❌用例执行异常: {case_name} — {e}")
+            raise  # 其他异常也要继续传播
         finally:
             end_time = time.time()
             elapsed_time = end_time - start_time

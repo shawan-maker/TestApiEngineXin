@@ -1,5 +1,6 @@
 from ApiEngine import global_func,log
 from ApiEngine.BaseCase import BaseCase, db, ENV
+from ApiEngine.caseLog import PreconditionChainError
 from ApiEngine.testResult import TestResult
 
 
@@ -99,6 +100,8 @@ class TestRunner:
         # 运行测试用例
         try:
             self.c.perform(case)
+        except PreconditionChainError as e:
+            test_result.add_fail(self.c)
         except AssertionError:
             test_result.add_fail(self.c)
         except Exception as e:
