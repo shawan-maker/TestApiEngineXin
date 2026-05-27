@@ -8,6 +8,9 @@ venv/
 env/
 .venv/
 
+# 测试数据
+tests/
+
 # 依赖包
 *.egg-info/
 dist/
