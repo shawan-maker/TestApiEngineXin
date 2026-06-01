@@ -12,7 +12,7 @@ with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as fh:
 # 核心配置
 setup(
     name="api_engine_xin",  # ✅【必须改】pip install 这个名字！全网唯一，不能和PyPI上已有的包名重复
-    version="0.0.16", # ✅【必须改】版本号，每次更新包都要升级版本（如0.0.2、0.1.0）
+    version="0.0.18", # ✅【必须改】版本号，每次更新包都要升级版本（如0.0.2、0.1.0）
     author="Shawn",# ✅【必须改】你的名字/昵称
     author_email="xiaoh0525@xiaoh.com",# ✅【必须改】你的注册PyPI的邮箱
     description="接口测试平台测试用例执行引擎", # ✅【必须改】一句话说明你的包是干嘛的

@@ -571,7 +571,15 @@ class BaseCase(CaseLogHandler):
     def del_global_variable(self, key):
         """删除测试运行环境的全局变量"""
         self.info_log(f"删除全局变量：{key}")
-        del ENV.get("envs")[key]
+        envs = ENV.get("envs")
+        if isinstance(envs, dict) and key in envs:
+            del envs[key]
+        try:
+            debug_deletes = ENV.get("debug_deletes")
+            if isinstance(debug_deletes, list) and key not in debug_deletes:
+                debug_deletes.append(key)
+        except Exception:
+            pass
 
     def get_env_variable(self, key, default=None):
         """
