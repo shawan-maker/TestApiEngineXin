@@ -105,6 +105,7 @@ class TestRunner:
         return self.result
 
     def perform_case(self, case,test_result):
+        self.c._db = self._db
         # 运行测试用例
         try:
             self.c.perform(case)

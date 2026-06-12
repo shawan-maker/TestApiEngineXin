@@ -6,12 +6,13 @@ from .caseLog import CaseLogHandler, PreconditionChainError
 from .dbClient import DBClient
 # 定义脚本中的全局变量
 ENV = {}
-db = DBClient()
+# db = DBClient()
 
 class BaseCase(CaseLogHandler):
     """用例执行基本父类"""
     def __init__(self):
         self.session = requests.Session()
+        self._db = None
 
     def __run_script(self, data):
         # 执行前后置脚本，可以在前后置脚本中共享数据
@@ -20,6 +21,7 @@ class BaseCase(CaseLogHandler):
         print = self.print_log
         # 定义脚本中的临时变量
         self.env = {}
+        db = self._db
         # 1、读取前置脚本数据
         setup_scripts = data.get("setup_script")
         # 2、执行字符串中有效的python代码
