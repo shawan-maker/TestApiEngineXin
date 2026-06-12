@@ -13,6 +13,8 @@ class BaseCase(CaseLogHandler):
     def __init__(self):
         self.session = requests.Session()
         self._db = None
+        self._extract_results = []
+        self._assert_results = []
 
     def __run_script(self, data):
         # 执行前后置脚本，可以在前后置脚本中共享数据
@@ -311,6 +313,12 @@ class BaseCase(CaseLogHandler):
         # 4、保存到环境变量（后续用 ${user_id} 引用）
         self.save_env_variable(var_name, extracted_value)
         self.info_log(f"数据提取成功：{var_name} = {extracted_value}")
+        # 5、记录提取结果
+        self._extract_results.append({
+            "var_name": var_name,
+            "extract_expr": extract_expr,
+            "value": extracted_value,
+        })
 
     def __assert_data(self, assertion, response):
         """
@@ -358,11 +366,14 @@ class BaseCase(CaseLogHandler):
             for idx, assertion in enumerate(data.get("assertions"), start=1):
                 field = assertion.get("field", "未知")
                 expected = assertion.get("expected", "未知")
+                assert_type = assertion.get("type", "eq")
+                passed = True
                 try:
                     self.info_log(f"  [{idx}/{total}] 执行断言: field={field}, expected={expected}")
                     self.__assert_data(assertion, response)
                     self.info_log(f"  [{idx}/{total}] ✅ 断言通过: {field}")
                 except AssertionError as e:
+                    passed = False
                     self.error_log(f"  [{idx}/{total}] ❌ 断言失败: {field} — {e}")
                     assertion_errors.append({
                         "index": idx,
@@ -371,6 +382,13 @@ class BaseCase(CaseLogHandler):
                         "error_type": "ASSERTION_FAILED",
                         "message": str(e)
                     })
+                # 记录断言结果
+                self._assert_results.append({
+                    "field": field,
+                    "type": assert_type,
+                    "expected": expected,
+                    "passed": passed,
+                })
             # 所有断言执行完毕后输出汇总
             passed_count = total - len(assertion_errors)
             if assertion_errors:
@@ -477,6 +495,8 @@ class BaseCase(CaseLogHandler):
         """执行用例"""
         start_time = time.time()
         self._precondition_errors = []  # 记录前置错误（供结果查询）
+        self._extract_results = []      # 重置提取结果
+        self._assert_results = []       # 重置断言结果
         case_name = data.get('title')
         has_failure = False  # ★ 新增：失败标志位
         try:
