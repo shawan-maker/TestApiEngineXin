@@ -223,6 +223,7 @@ class BaseCase(CaseLogHandler):
                 from urllib.parse import urlencode
                 query_string = urlencode(params)
                 full_url = f"{self.url}?{query_string}"
+            self.url = full_url  # 更新 self.url 为完整URL（含已替换的查询参数）
             self.info_log("请求地址:", full_url)
             self.info_log("请求方法:", self.method)
             self.info_log("请求头:", self.request_headers)
@@ -353,8 +354,11 @@ class BaseCase(CaseLogHandler):
                 self.error_log("响应体非JSON格式，无法提取数据")
             # 3、通过 JSONPath 提取值
             extracted_value = self.json_extract(resp_json, extract_expr)
+        # 记录实际值（供 __execute_assertions 读取，即使断言失败也能获取）
+        self._last_actual = extracted_value
             # 4、断言
         self.assertion(assertion_type, assertion_content, extracted_value)
+        return extracted_value
 
     # 遍历所有assertions项，依次执行断言
     def __execute_assertions(self, data, response):
@@ -368,12 +372,14 @@ class BaseCase(CaseLogHandler):
                 expected = assertion.get("expected", "未知")
                 assert_type = assertion.get("type", "eq")
                 passed = True
+                actual_value = None
                 try:
                     self.info_log(f"  [{idx}/{total}] 执行断言: field={field}, expected={expected}")
-                    self.__assert_data(assertion, response)
+                    actual_value = self.__assert_data(assertion, response)
                     self.info_log(f"  [{idx}/{total}] ✅ 断言通过: {field}")
                 except AssertionError as e:
                     passed = False
+                    actual_value = getattr(self, '_last_actual', None)
                     self.error_log(f"  [{idx}/{total}] ❌ 断言失败: {field} — {e}")
                     assertion_errors.append({
                         "index": idx,
@@ -387,6 +393,7 @@ class BaseCase(CaseLogHandler):
                     "field": field,
                     "type": assert_type,
                     "expected": expected,
+                    "actual": actual_value,
                     "passed": passed,
                 })
             # 所有断言执行完毕后输出汇总
