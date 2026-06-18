@@ -32,7 +32,9 @@ class TestRunner:
                 ENV.clear()
                 ENV.update(self.env_data)
                 # 将tools中的函数（用户自定义），通过exec执行（字符串中的python函数），加载到TestTools模块的命名空间中
-                exec(ENV.get("global_func"), global_func.__dict__)
+                _gf = ENV.get("global_func")
+                if _gf and isinstance(_gf, str):
+                    exec(_gf, global_func.__dict__)
                 # 创建测试结果的记录器
                 test_result = TestResult(all=len(testcases["cases"]),name=testcases["name"])
                 # 运行测试用例
@@ -48,7 +50,9 @@ class TestRunner:
                 ENV.clear()
                 ENV.update(self.env_data)
                 # 将tools中的函数（用户自定义），通过exec执行（字符串中的python函数），加载到TestTools模块的命名空间中
-                exec(ENV.get("global_func"), global_func.__dict__)
+                _gf = ENV.get("global_func")
+                if _gf and isinstance(_gf, str):
+                    exec(_gf, global_func.__dict__)
                 # 创建测试结果的记录器
                 test_result = TestResult(all=1)
                 # log.info_log("执行测试用例：",testcases)
@@ -65,7 +69,9 @@ class TestRunner:
                 ENV.clear()
                 ENV.update(self.env_data)
                 # 将tools中的函数（用户自定义），通过exec执行（字符串中的python函数），加载到TestTools模块的命名空间中
-                exec(ENV.get("global_func"), global_func.__dict__)
+                _gf = ENV.get("global_func")
+                if _gf and isinstance(_gf, str):
+                    exec(_gf, global_func.__dict__)
                 # 新增检测日志
                 log.info_log(f"gen_random_num 是否存在：{hasattr(global_func, 'gen_random_num')}")
                 log.info_log(f"gen_random_num 是否可调用：{callable(getattr(global_func, 'gen_random_num', None))}")

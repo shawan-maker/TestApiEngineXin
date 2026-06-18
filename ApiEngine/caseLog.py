@@ -1,7 +1,12 @@
+import time
+
+
 class CaseLogHandler:
     """用例日志处理类"""
     def save_log(self,msg,level):
         """保存日志"""
+        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
+        msg = ts + " | " + msg
         # 1、判断当前实例是否有日志属性
         if not hasattr(self,"log_data"):
             setattr(self,"log_data",[])

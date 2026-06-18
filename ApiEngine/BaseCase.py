@@ -26,15 +26,17 @@ class BaseCase(CaseLogHandler):
         db = self._db
         # 1、读取前置脚本数据
         setup_scripts = data.get("setup_script")
-        # 2、执行字符串中有效的python代码
-        exec(setup_scripts)
+        # 2、执行字符串中有效的python代码（空值守卫）
+        if setup_scripts and isinstance(setup_scripts, str):
+            exec(setup_scripts)
 
         response = yield
 
         # 1、读取后置脚本数据
         teardown_scripts = data.get("teardown_script")
-        # 2、执行字符串中有效的python代码
-        exec(teardown_scripts)
+        # 2、执行字符串中有效的python代码（空值守卫）
+        if teardown_scripts and isinstance(teardown_scripts, str):
+            exec(teardown_scripts)
 
         yield
 
@@ -165,16 +167,17 @@ class BaseCase(CaseLogHandler):
         else:
             request_data["url"] = ENV.get("base_url") + data.get("interface").get("url")
         request_data["method"] = data.get("interface").get("method")
-        # 2、处理请求头
-        request_data["headers"] = ENV.get("headers")
-        request_data["headers"].update(data.get("headers"))
+        # 2、处理请求头（使用副本，避免污染全局 ENV）
+        request_data["headers"] = dict(ENV.get("headers") or {})
+        request_data["headers"].update(data.get("headers") or {})
         # 3、处理请求参数
         request_data["params"] = data.get("request").get("params")
         content_type = request_data["headers"].get("Content-Type", "")
+        _req = data.get("request") or {}
         if "application/json" in content_type:
-            request_data["json"] = data.get("request").get("json")
+            request_data["json"] = _req.get("json") or _req.get("data")
         if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
-            request_data["data"] = data.get("request").get("data")
+            request_data["data"] = _req.get("data") or _req.get("json")
         if "multipart/form-data" in content_type:
             # 注意：这里不直接把 files 放进需要做变量替换的数据里，避免 open 文件对象被 eval 破坏
             request_data["files"] = data.get("request").get("files")
