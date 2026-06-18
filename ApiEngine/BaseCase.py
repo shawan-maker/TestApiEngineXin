@@ -458,6 +458,10 @@ class BaseCase(CaseLogHandler):
             step_error = None
             response= None
             try:
+                # 重置响应属性，避免上一步骤的残留数据
+                self.status_code = ''
+                self.response_body = ''
+                self.response_headers = {}
                 self.__setup_script(step)
                 response = self.__send_request(step)
 
@@ -485,6 +489,33 @@ class BaseCase(CaseLogHandler):
             # 确保 teardown 在任何情况下都执行（如果 setup 已执行成功）
             # 注意：如果 __setup_script 都失败了，teardown 不应再执行
                 self.__teardown_script(step, response)
+                # ★ 捕获该前置步骤的独立执行结果（响应/请求/断言/提取）
+                _req_body = getattr(self, 'request_body', '')
+                if isinstance(_req_body, bytes):
+                    _req_body = _req_body.decode('utf-8', errors='replace')
+                _elapsed = ""
+                if response is not None:
+                    try:
+                        _elapsed = "{} ms".format(int(response.elapsed.total_seconds() * 1000))
+                    except Exception:
+                        pass
+                step_result = {
+                    "title": title,
+                    "status_code": getattr(self, 'status_code', ''),
+                    "response_headers": dict(getattr(self, 'response_headers', {}) or {}),
+                    "response_body": getattr(self, 'response_body', ''),
+                    "request_body": _req_body,
+                    "request_headers": dict(getattr(self, 'request_headers', {}) or {}),
+                    "url": getattr(self, 'url', ''),
+                    "method": getattr(self, 'method', ''),
+                    "run_time": _elapsed,
+                    "assert_info": list(self._assert_results),
+                    "extract_info": list(self._extract_results),
+                }
+                self._precondition_results.append(step_result)
+                # 清空，避免累积到下一步骤
+                self._assert_results = []
+                self._extract_results = []
                 self.info_log(f"{prefix}✅ [L{depth}] 前置完成: {title}")
 
             # ★ 根据 on_failure 决定是否继续
@@ -505,6 +536,7 @@ class BaseCase(CaseLogHandler):
         """执行用例"""
         start_time = time.time()
         self._precondition_errors = []  # 记录前置错误（供结果查询）
+        self._precondition_results = []  # 记录各前置步骤的独立执行结果
         self._extract_results = []      # 重置提取结果
         self._assert_results = []       # 重置断言结果
         case_name = data.get('title')

@@ -32,6 +32,7 @@ class TestResult:
             "run_time": getattr(test, "elapsed_ms", ""),
             "extract_info": getattr(test, "_extract_results", []),
             "assert_info": getattr(test, "_assert_results", []),
+            "precondition_results": getattr(test, "_precondition_results", []),
         }
 
     def add_success(self, test: BaseCase):
