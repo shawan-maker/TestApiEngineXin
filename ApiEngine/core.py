@@ -1,284 +1,230 @@
-from ApiEngine import global_func,log
-from ApiEngine.BaseCase import BaseCase, ENV
-from ApiEngine.caseLog import PreconditionChainError
-from ApiEngine.testResult import TestResult
-from ApiEngine.dbClient import DBClient
+import copy
+
+from ApiEngine import log
+from ApiEngine.infra import global_func
+from ApiEngine.infra.exceptions import PreconditionChainError
+from ApiEngine.infra.test_result import TestResult
+from ApiEngine.infra.db_client import DBClient
+from ApiEngine.engine.base_case import BaseCase
+
 
 class TestRunner:
     def __init__(self, env_data):
         """
         :param env_data: 执行测试时的环境数据
         """
-        self.env_data = env_data
+        # 深拷贝环境数据，避免修改调用方原始数据
+        self.env_data = copy.deepcopy(env_data)
+        # debug_updates 保持原引用，变更对上层可见
+        if "debug_updates" in env_data:
+            self.env_data["debug_updates"] = env_data["debug_updates"]
         self.result = []
-        self.c=BaseCase()
-        # ★ 方案B核心：每个 TestRunner 持有独立的 DBClient 实例
-        # 这样多线程并发时，每个线程有自己的数据库连接互不干扰
         self._db = DBClient()
+        self._shared_env = {}  # 实例级共享环境
 
-    def execute_cases(self,testcases):
+    def execute_cases(self, testcases):
         """执行测试用例的方法"""
         # 根据数据库的配置初始化数据库的连接
-        # ★ 改动1：使用 self._db（实例级）代替 db（全局单例）
         db_config = self.env_data.pop("db", None)
         if db_config:
-            self._db.init_connent(db_config)
+            self._db.init_connect(db_config)
+
+        # 统一初始化共享环境
+        self._shared_env.clear()
+        self._shared_env.update(self.env_data)
+        self._load_global_func()
+
         # 判断测试数据参数的类型
         if isinstance(testcases, dict):
             cases = testcases.get("cases")
             if cases:
-                log.info_log("执行测试套件：",testcases["name"])
-                # 将全局环境测试加载到ENV中
-                ENV.clear()
-                ENV.update(self.env_data)
-                # 将tools中的函数（用户自定义），通过exec执行（字符串中的python函数），加载到TestTools模块的命名空间中
-                _gf = ENV.get("global_func")
-                if _gf and isinstance(_gf, str):
-                    exec(_gf, global_func.__dict__)
-                # 创建测试结果的记录器
-                test_result = TestResult(all=len(testcases["cases"]),name=testcases["name"])
-                # 运行测试用例
+                log.info_log("执行测试套件：", testcases["name"])
+                test_result = TestResult(all=len(testcases["cases"]), name=testcases["name"])
                 for case in testcases["cases"]:
                     log.info_log(case)
-                    self.perform_case(case,test_result)
-                # 获取测试结果执行记录器中的结果
+                    self.perform_case(case, test_result)
                 res = test_result.get_result_info()
                 self.result.append(res)
             else:
-                log.info_log("调试单条接口用例：",testcases["title"])
-                # 将全局环境测试加载到ENV中
-                ENV.clear()
-                ENV.update(self.env_data)
-                # 将tools中的函数（用户自定义），通过exec执行（字符串中的python函数），加载到TestTools模块的命名空间中
-                _gf = ENV.get("global_func")
-                if _gf and isinstance(_gf, str):
-                    exec(_gf, global_func.__dict__)
-                # 创建测试结果的记录器
+                log.info_log("调试单条接口用例：", testcases["title"])
                 test_result = TestResult(all=1)
-                # log.info_log("执行测试用例：",testcases)
                 self.perform_case(testcases, test_result)
-                # 获取测试结果执行记录器中的结果
                 res = test_result.get_result_info()
                 self.result = res["cases"][0]
         elif isinstance(testcases, list):
-            # 遍历所有测试用例
             results = []
             for items in testcases:
-                log.info_log("执行测试套件：",items["name"])
-                # 将全局环境测试加载到ENV中
-                ENV.clear()
-                ENV.update(self.env_data)
-                # 将tools中的函数（用户自定义），通过exec执行（字符串中的python函数），加载到TestTools模块的命名空间中
-                _gf = ENV.get("global_func")
-                if _gf and isinstance(_gf, str):
-                    exec(_gf, global_func.__dict__)
-                # 新增检测日志
-                log.info_log(f"gen_random_num 是否存在：{hasattr(global_func, 'gen_random_num')}")
-                log.info_log(f"gen_random_num 是否可调用：{callable(getattr(global_func, 'gen_random_num', None))}")
-                log.info_log(f"random_mobile 是否存在：{hasattr(global_func, 'random_mobile')}")
-                log.info_log(f"random_mobile 是否可调用：{callable(getattr(global_func, 'random_mobile', None))}")
-                # 创建测试结果的记录器
-                test_result = TestResult(all=len(items["cases"]),name=items["name"])
-                # 运行测试用例
+                log.info_log("执行测试套件：", items["name"])
+                test_result = TestResult(all=len(items["cases"]), name=items["name"])
                 for case in items["cases"]:
-                    self.perform_case(case,test_result)
-                # 获取测试结果执行记录器中的结果
+                    self.perform_case(case, test_result)
                 res = test_result.get_result_info()
                 results.append(res)
-            all = 0
-            success = 0
-            fail = 0
-            error = 0
+            total_all = 0
+            total_success = 0
+            total_fail = 0
+            total_error = 0
             for scence_result in results:
-                all += scence_result["all"]
-                success += scence_result["success"]
-                fail += scence_result["fail"]
-                error += scence_result["error"]
+                total_all += scence_result["all"]
+                total_success += scence_result["success"]
+                total_fail += scence_result["fail"]
+                total_error += scence_result["error"]
             self.result = {
                 "results": results,
-                "all": all,
-                "success": success,
-                "fail": fail,
-                "error": error
+                "all": total_all,
+                "success": total_success,
+                "fail": total_fail,
+                "error": total_error
             }
         else:
             log.error_log("测试数据格式错误")
+
         # 断开数据库连接
-        # ★ 改动2：使用 self._db 关闭自己的连接（不影响其他线程）
         if db_config:
-            self._db.close_db_connent()
-        # 返回用例执行结果
+            self._db.close_db_connect()
         return self.result
 
-    def perform_case(self, case,test_result):
-        self.c._db = self._db
-        # 运行测试用例
+    def perform_case(self, case, test_result):
+        """执行单条用例"""
+        # 每次创建新的 BaseCase 实例，传入共享环境引用
+        c = BaseCase(shared_env=self._shared_env)
+        c._db = self._db
         try:
-            self.c.perform(case)
-        except PreconditionChainError as e:
-            test_result.add_fail(self.c)
+            c.perform(case)
+        except PreconditionChainError:
+            test_result.add_fail(c)
         except AssertionError:
-            test_result.add_fail(self.c)
+            test_result.add_fail(c)
         except Exception as e:
-            test_result.add_error(self.c,e)
+            test_result.add_error(c, e)
         else:
-            test_result.add_success(self.c)
+            test_result.add_success(c)
+
+    def _load_global_func(self):
+        """安全加载用户自定义函数，避免跨执行污染"""
+        _gf = self.env_data.get("global_func")
+        if not (_gf and isinstance(_gf, str)):
+            return
+        # 只保留 __name__ 等双下划线内置属性
+        builtins = {k: v for k, v in global_func.__dict__.items() if k.startswith('__')}
+        global_func.__dict__.clear()
+        global_func.__dict__.update(builtins)
+        exec(_gf, global_func.__dict__)
 
 
 if __name__ == '__main__':
+    import os
+
+    # 获取测试辅助文件的绝对路径
+    _test_dir = os.path.join(os.path.dirname(__file__), '..', 'tests')
+    _setup = open(os.path.join(_test_dir, 'setup_scripts.txt'), 'r', encoding='utf-8').read()
+    _teardown = open(os.path.join(_test_dir, 'teardown_scripts.txt'), 'r', encoding='utf-8').read()
+    _tools = open(os.path.join(_test_dir, 'Tools.py'), 'r', encoding='utf-8').read()
+
     test_case = {
         "title": "登录成功",
-       "interface": {
+        "interface": {
             "url": "/member/public/login",
-             "method": "post"
-            },
-           "headers": {
-             "Content-Type": "application/x-www-form-urlencoded"
-         },
-         "request": {
-             "data": {
-                   "keywords": "13012341231",
-                   "password": "test123"
-               }
-           },
-           "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
-           "teardown_script": "",
-        # 数据提取
+            "method": "post"
+        },
+        "headers": {
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "request": {
+            "data": {
+                "keywords": "13012341231",
+                "password": "test123"
+            }
+        },
+        "setup_script": _setup,
+        "teardown_script": "",
         "extract": [
-            {"var_name":"status","extract_expr":"$.status"},
+            {"var_name": "status", "extract_expr": "$.status"},
             {"var_name": "description", "extract_expr": "$.description"}
         ],
-    "assertions": [
-            {
-                "type": "相等",
-                "field": "$.status",
-                "expected": 200
-            },
-            {
-                "type": "相等",
-                "field": "$.description",
-                "expected": "登录成功"
-            }
-        ]
-     }
-    test_case2 = {
-        "title": "验证是否登录成功",
-       "interface": {
-            "url": "/member/public/islogin",
-             "method": "post"
-            },
-           "headers": {
-             # "Content-Type": "application/x-www-form-urlencoded"
-         },
-         "request": {
-             "params": {
-                   "m": "Home",
-                   "c": "User",
-                    "a":"do_login",
-                    "t":"${status}"
-               },
-             # "data": {
-             #     "username": "13800000001",
-             #     "password": "123456",
-             #     "verify_code": "8888"
-             # }
-           },
-    "preconditions": [
-        {
-            "title": "P2P登录成功",
-            "interface": {
-                "url": "/member/public/login",
-                "method": "post"
-            },
-            "headers": {
-                "Content-Type": "application/x-www-form-urlencoded"
-            },
-            "request": {
-                "data": {
-                    "keywords": "13012341231",
-                    "password": "test123",
-                    "description":"${description3}"
-                }
-            },
-            "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
-            "teardown_script": "",
-            "preconditions": [
-                {
-                    "title": "验证当前用户没有登录",
-                    "interface": {
-                        "url": "/member/public/islogin",
-                        "method": "post"
-                    },
-                    "headers": {
-                        # "Content-Type": "application/x-www-form-urlencoded"
-                    },
-                    "request": {
-                        # "data": {
-                        #     "keywords": "13012341231",
-                        #     "password": "test123"
-                        # }
-                    },
-                    "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
-                    "teardown_script": "",
-
-                    # 数据提取
-                    "extract": [
-                        {"var_name": "status3", "extract_expr": "$.status"},
-                        {"var_name": "description3", "extract_expr": "$.description"}
-                    ],
-                    "assertions": [
-                        {
-                            "type": "相等",
-                            "field": "$.status",
-                            "expected": 200
-                        },
-                        {
-                            "type": "相等",
-                            "field": "$.description",
-                            "expected": "您未登陆！"
-                        }
-                    ]
-                }
-            ],
-            # 数据提取
-            "extract": [
-                {"var_name": "status", "extract_expr": "$.status"},
-                {"var_name": "description", "extract_expr": "$.description"}
-            ],
-            "assertions": [
-                {
-                    "type": "相等",
-                    "field": "$.status",
-                    "expected": 200
-                },
-                {
-                    "type": "相等",
-                    "field": "$.description",
-                    "expected": "登录成功"
-                }
-            ]
-        }
-    ],
-           "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
-           "teardown_script": "",
-        # 数据提取
-        "extract": [
-            {"var_name":"status2","extract_expr":"$.status"},
-            {"var_name": "description2", "extract_expr": "$.description"}
-        ],
-    "assertions": [
-            {
-                "type": "相等",
-                "field": "$.status",
-                "expected": "${status3}"
-            },
-            {
-                "type": "相等",
-                "field": "$.description",
-                "expected": "OK"
-            }
+        "assertions": [
+            {"type": "相等", "field": "$.status", "expected": 200},
+            {"type": "相等", "field": "$.description", "expected": "登录成功"}
         ]
     }
+
+    test_case2 = {
+        "title": "验证是否登录成功",
+        "interface": {
+            "url": "/member/public/islogin",
+            "method": "post"
+        },
+        "headers": {},
+        "request": {
+            "params": {
+                "m": "Home",
+                "c": "User",
+                "a": "do_login",
+                "t": "${status}"
+            },
+        },
+        "preconditions": [
+            {
+                "title": "P2P登录成功",
+                "interface": {
+                    "url": "/member/public/login",
+                    "method": "post"
+                },
+                "headers": {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                "request": {
+                    "data": {
+                        "keywords": "13012341231",
+                        "password": "test123",
+                        "description": "${description3}"
+                    }
+                },
+                "setup_script": _setup,
+                "teardown_script": "",
+                "preconditions": [
+                    {
+                        "title": "验证当前用户没有登录",
+                        "interface": {
+                            "url": "/member/public/islogin",
+                            "method": "post"
+                        },
+                        "headers": {},
+                        "request": {},
+                        "setup_script": _setup,
+                        "teardown_script": "",
+                        "extract": [
+                            {"var_name": "status3", "extract_expr": "$.status"},
+                            {"var_name": "description3", "extract_expr": "$.description"}
+                        ],
+                        "assertions": [
+                            {"type": "相等", "field": "$.status", "expected": 200},
+                            {"type": "相等", "field": "$.description", "expected": "您未登陆！"}
+                        ]
+                    }
+                ],
+                "extract": [
+                    {"var_name": "status", "extract_expr": "$.status"},
+                    {"var_name": "description", "extract_expr": "$.description"}
+                ],
+                "assertions": [
+                    {"type": "相等", "field": "$.status", "expected": 200},
+                    {"type": "相等", "field": "$.description", "expected": "登录成功"}
+                ]
+            }
+        ],
+        "setup_script": _setup,
+        "teardown_script": "",
+        "extract": [
+            {"var_name": "status2", "extract_expr": "$.status"},
+            {"var_name": "description2", "extract_expr": "$.description"}
+        ],
+        "assertions": [
+            {"type": "相等", "field": "$.status", "expected": "${status3}"},
+            {"type": "相等", "field": "$.description", "expected": "OK"}
+        ]
+    }
+
     test_suite = {
         "name": "测试套件1",
         "cases": [
@@ -294,13 +240,15 @@ if __name__ == '__main__':
                 },
                 "request": {
                     "params": {},
-                    "data": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                             "pwd2": "${password}", "mobile": "${mobile}"},
-                    "json": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                             "pwd2": "${password}", "mobile": "${mobile}"}
+                    "data": {"keywords": "13012349900", "password": "test123",
+                             "user2": "${username}", "pwd2": "${password}",
+                             "mobile": "${mobile}"},
+                    "json": {"keywords": "13012349900", "password": "test123",
+                             "user2": "${username}", "pwd2": "${password}",
+                             "mobile": "${mobile}"}
                 },
-                "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
-                "teardown_script": open("..\\tests\\teardown_scripts.txt", "r", encoding="utf-8").read()
+                "setup_script": _setup,
+                "teardown_script": _teardown
             },
             {
                 "title": "登录接口2",
@@ -314,20 +262,23 @@ if __name__ == '__main__':
                 },
                 "request": {
                     "params": {},
-                    "data": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                             "pwd2": "${password}", "mobile": "${mobile}"},
-                    "json": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                             "pwd2": "${password}", "mobile": "${mobile}"}
+                    "data": {"keywords": "13012349900", "password": "test123",
+                             "user2": "${username}", "pwd2": "${password}",
+                             "mobile": "${mobile}"},
+                    "json": {"keywords": "13012349900", "password": "test123",
+                             "user2": "${username}", "pwd2": "${password}",
+                             "mobile": "${mobile}"}
                 },
-                "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
+                "setup_script": _setup,
                 "teardown_script": ""
             }
         ]
     }
+
     test_suites = [
         {
-            "name":"测试套件1",
-            "cases":[
+            "name": "测试套件1",
+            "cases": [
                 {
                     "title": "登录接口",
                     "interface": {
@@ -340,15 +291,15 @@ if __name__ == '__main__':
                     },
                     "request": {
                         "params": {},
-                        "data": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                                 "pwd2": "${password}", "mob"
-                                                        ""
-                                                        "ile": "${mobile}"},
-                        "json": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                                 "pwd2": "${password}", "mobile": "${mobile}"}
+                        "data": {"keywords": "13012349900", "password": "test123",
+                                 "user2": "${username}", "pwd2": "${password}",
+                                 "mobile": "${mobile}"},
+                        "json": {"keywords": "13012349900", "password": "test123",
+                                 "user2": "${username}", "pwd2": "${password}",
+                                 "mobile": "${mobile}"}
                     },
-                    "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
-                    "teardown_script": open("..\\tests\\teardown_scripts.txt", "r", encoding="utf-8").read()
+                    "setup_script": _setup,
+                    "teardown_script": _teardown
                 },
                 {
                     "title": "登录接口2",
@@ -362,12 +313,14 @@ if __name__ == '__main__':
                     },
                     "request": {
                         "params": {},
-                        "data": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                                 "pwd2": "${password}", "mobile": "${mobile}"},
-                        "json": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                                 "pwd2": "${password}", "mobile": "${mobile}"}
+                        "data": {"keywords": "13012349900", "password": "test123",
+                                 "user2": "${username}", "pwd2": "${password}",
+                                 "mobile": "${mobile}"},
+                        "json": {"keywords": "13012349900", "password": "test123",
+                                 "user2": "${username}", "pwd2": "${password}",
+                                 "mobile": "${mobile}"}
                     },
-                    "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
+                    "setup_script": _setup,
                     "teardown_script": ""
                 }
             ]
@@ -387,13 +340,15 @@ if __name__ == '__main__':
                     },
                     "request": {
                         "params": {},
-                        "data": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                                 "pwd2": "${password}", "mobile": "${mobile}"},
-                        "json": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                                 "pwd2": "${password}", "mobile": "${mobile}"}
+                        "data": {"keywords": "13012349900", "password": "test123",
+                                 "user2": "${username}", "pwd2": "${password}",
+                                 "mobile": "${mobile}"},
+                        "json": {"keywords": "13012349900", "password": "test123",
+                                 "user2": "${username}", "pwd2": "${password}",
+                                 "mobile": "${mobile}"}
                     },
-                    "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
-                    "teardown_script": open("..\\tests\\teardown_scripts.txt", "r", encoding="utf-8").read()
+                    "setup_script": _setup,
+                    "teardown_script": _teardown
                 },
                 {
                     "title": "登录接口4",
@@ -407,32 +362,32 @@ if __name__ == '__main__':
                     },
                     "request": {
                         "params": {},
-                        "data": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                                 "pwd2": "${password}", "mobile": "${mobile}"},
-                        "json": {"keywords": "13012349900", "password": "test123", "user2": "${username}",
-                                 "pwd2": "${password}", "mobile": "${mobile}"}
+                        "data": {"keywords": "13012349900", "password": "test123",
+                                 "user2": "${username}", "pwd2": "${password}",
+                                 "mobile": "${mobile}"},
+                        "json": {"keywords": "13012349900", "password": "test123",
+                                 "user2": "${username}", "pwd2": "${password}",
+                                 "mobile": "${mobile}"}
                     },
-                    "setup_script": open("..\\tests\\setup_scripts.txt", "r", encoding="utf-8").read(),
+                    "setup_script": _setup,
                     "teardown_script": ""
                 }
             ]
         }
     ]
+
     # 全局环境数据
     test_env_data = {
         "base_url": "http://121.43.169.97:8081",
-        # "base_url": "http://127.0.0.1",
-        # "base_url": "http://hmshop-test.itheima.net",
         "headers": {
             "Content-Type": "application/json"
         },
-        # 环境变量
         "envs": {
             "username": "rand_13012349900",
             "password": "rand_test123",
             "token": "12345678"
         },
-        "global_func": open("..\\tests\\Tools.py", "r", encoding="utf-8").read(),
+        "global_func": _tools,
         "db": [
             {
                 "name": "P2P",
@@ -446,9 +401,7 @@ if __name__ == '__main__':
             }
         ]
     }
+
     runner = TestRunner(test_env_data)
-    # result = runner.execute_cases(test_case)
     result = runner.execute_cases(test_case2)
-    # result = runner.execute_cases(test_suite)
-    # result = runner.execute_cases(test_suites)
     log.info_log("测试结果：", result)

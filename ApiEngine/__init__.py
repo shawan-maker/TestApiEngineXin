@@ -1,3 +1,3 @@
-from ApiEngine.caseLog import CaseLogHandler
+from ApiEngine.infra.case_log import CaseLogHandler
 
 log = CaseLogHandler()

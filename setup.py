@@ -2,27 +2,34 @@ from setuptools import setup, find_packages
 import codecs
 import os
 
-# 获取当前项目根目录
 here = os.path.abspath(os.path.dirname(__file__))
 
-# 读取README.md作为项目长描述（可选）
 with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as fh:
     long_description = "\n" + fh.read()
 
-# 核心配置
 setup(
-    name="api_engine_xin",  # ✅【必须改】pip install 这个名字！全网唯一，不能和PyPI上已有的包名重复
-    version="0.0.23", # ✅【必须改】版本号，每次更新包都要升级版本（如0.0.2、0.1.0）
-    author="Shawn",# ✅【必须改】你的名字/昵称
-    author_email="xiaoh0525@xiaoh.com",# ✅【必须改】你的注册PyPI的邮箱
-    description="接口测试平台测试用例执行引擎", # ✅【必须改】一句话说明你的包是干嘛的
+    name="api_engine_xin",
+    version="0.0.25",
+    author="Shawn",
+    author_email="xiaoh0525@xiaoh.com",
+    description="接口测试平台测试用例执行引擎",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://pypi.org/project/api_engine_xin/", # 可选，比如你的github/gitee地址，没有就写你的PyPI包地址
-    packages=find_packages(), # 自动识别你的包目录下的所有py文件，不用手动写
-    python_requires=">=3.6", # 支持的Python版本，建议写3.6+，兼容大部分环境
-    install_requires=["pymysql>=1.0.0", "requests>=2.26.0"], # ✅【按需改】你的包依赖的第三方库，例如["redis>=4.0.0", "pymysql>=1.0.0"]，无依赖则留空列表
-    keywords=["python", "apitest", "apiEngine"], # 可选，方便别人搜索你的包
+    url="https://pypi.org/project/api_engine_xin/",
+    packages=find_packages(),
+    python_requires=">=3.6",
+    install_requires=[
+        "pymysql>=1.0.0",
+        "requests>=2.26.0",
+        "jsonpath>=0.82",
+    ],
+    extras_require={
+        "sqlserver": ["pymssql>=2.2.0"],
+        "oracle": ["oracledb>=1.0.0"],
+        "postgresql": ["psycopg2-binary>=2.9.0"],
+        "all": ["pymssql>=2.2.0", "oracledb>=1.0.0", "psycopg2-binary>=2.9.0"],
+    },
+    keywords=["python", "apitest", "apiEngine"],
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",

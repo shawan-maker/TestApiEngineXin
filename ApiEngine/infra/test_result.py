@@ -1,5 +1,4 @@
 from ApiEngine import log
-from ApiEngine.BaseCase import BaseCase
 
 
 class TestResult:
@@ -16,7 +15,7 @@ class TestResult:
         self.error = 0
         self.results = []
 
-    def _build_info(self, test: BaseCase, status: str) -> dict:
+    def _build_info(self, test, status: str) -> dict:
         """构建用例结果信息（包含提取和断言结果）"""
         return {
             "name": getattr(test, "name", ""),
@@ -35,7 +34,7 @@ class TestResult:
             "precondition_results": getattr(test, "_precondition_results", []),
         }
 
-    def add_success(self, test: BaseCase):
+    def add_success(self, test):
         """
         :param test: 用例对象
         :return:
@@ -43,7 +42,7 @@ class TestResult:
         self.success += 1
         self.results.append(self._build_info(test, "success"))
 
-    def add_fail(self, test: BaseCase):
+    def add_fail(self, test):
         """
         :param test: 用例对象
         :return:
@@ -51,7 +50,7 @@ class TestResult:
         self.fail += 1
         self.results.append(self._build_info(test, "fail"))
 
-    def add_error(self, test: BaseCase, error):
+    def add_error(self, test, error):
         """
         :param test: 用例对象
         :return:

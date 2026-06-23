@@ -8,7 +8,7 @@ venv/
 env/
 .venv/
 
-# 测试数据
+# 测试代码
 tests/
 
 # 依赖包
@@ -24,3 +24,6 @@ build/
 .idea/
 .vscode/
 *.swp
+
+# 开发工具
+.claude/
