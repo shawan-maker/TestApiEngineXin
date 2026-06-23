@@ -41,9 +41,13 @@ class BaseCase(CaseLogHandler):
 
     # ==================== HTTP 请求 ====================
 
-    def _send_request(self, data):
+    def _send_request(self, data, http_client=None):
         """构建并发送请求"""
-        http_client = HttpClient()
+        if http_client is None:
+            http_client = HttpClient()
+            self._owns_http_client = True
+        else:
+            self._owns_http_client = False
         self._http_client = http_client
         replacer = Replacer(self._shared_env, self.env, self.info_log)
         request_data = http_client.build_request(data, self._shared_env, replacer)
@@ -182,12 +186,18 @@ class BaseCase(CaseLogHandler):
         self._assert_results = []
         case_name = data.get('title')
         has_failure = False
+        shared_http_client = None
 
         try:
+            # 创建共享 HTTP session（前置步骤 + 主用例共用 Cookie）
+            shared_http_client = HttpClient()
+
             # 1、前置条件链
             if data.get("preconditions"):
                 self.info_log("========== 开始执行前置步骤链 ==========")
-                precond_executor = PreconditionExecutor(self._shared_env, self._db)
+                precond_executor = PreconditionExecutor(
+                    self._shared_env, self._db, http_client=shared_http_client
+                )
                 self._precondition_errors, self._precondition_results = precond_executor.execute(
                     data.get("preconditions"), depth=1, log_handler=self
                 )
@@ -203,7 +213,7 @@ class BaseCase(CaseLogHandler):
             # 2、前置脚本 + 发送请求
             self.info_log(f"开始执行用例步骤:{case_name}")
             self._setup_script(data)
-            response = self._send_request(data)
+            response = self._send_request(data, http_client=shared_http_client)
 
             # 3、数据提取
             if data.get("extract"):
@@ -232,9 +242,10 @@ class BaseCase(CaseLogHandler):
             raise
 
         finally:
-            # 关闭 http client
+            # 关闭共享 http client
+            if shared_http_client:
+                shared_http_client.close()
             if hasattr(self, '_http_client'):
-                self._http_client.close()
                 delattr(self, '_http_client')
 
             end_time = time.time()

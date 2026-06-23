@@ -8,11 +8,12 @@ from ApiEngine.engine.assertion import AssertionEngine
 class PreconditionExecutor:
     """前置条件递归执行器（深度优先 DFS）"""
 
-    def __init__(self, shared_env, db):
+    def __init__(self, shared_env, db, http_client=None):
         self._shared_env = shared_env
         self._db = db
         self._extractor = Extractor()
         self._precondition_results = []
+        self._shared_http_client = http_client  # 共享 HTTP session
 
     def execute(self, steps, depth=1, failure_mode="continue", log_handler=None):
         """
@@ -47,6 +48,7 @@ class PreconditionExecutor:
 
             # 单步执行
             step_error = None
+            has_assertion_error = False
             response = None
             step_assert_results = []
             step_extract_results = []
@@ -65,9 +67,12 @@ class PreconditionExecutor:
                 )
                 next(script_hook)
 
-                # 发送请求
+                # 发送请求：使用共享 session，无共享则创建临时实例
                 from ApiEngine.engine.replacer import Replacer
-                http_client = HttpClient()
+                if self._shared_http_client:
+                    http_client = self._shared_http_client
+                else:
+                    http_client = HttpClient()
                 temp_env = {}
                 replacer = Replacer(self._shared_env, temp_env, log_handler.info_log)
                 request_data = http_client.build_request(step, self._shared_env, replacer)
@@ -180,6 +185,13 @@ class PreconditionExecutor:
                         log_handler.info_log(f"{prefix}  断言汇总：{total} 个全部通过 ✅")
 
             except AssertionError as e:
+                has_assertion_error = True
+                step_error = {
+                    "level": depth,
+                    "step_title": title,
+                    "error_type": "ASSERTION_FAILED",
+                    "message": str(e)
+                }
                 log_handler.warning_log(f"{prefix}❌ [L{depth}] 存在断言失败: {title} — {e}")
 
             except Exception as e:
@@ -199,8 +211,8 @@ class PreconditionExecutor:
                     except StopIteration:
                         pass
 
-                # 关闭 http client
-                if http_client:
+                # 仅关闭非共享的 http client
+                if http_client and not self._shared_http_client:
                     http_client.close()
 
                 # 构建步骤结果
@@ -213,8 +225,16 @@ class PreconditionExecutor:
                         _elapsed = "{} ms".format(int(response.elapsed.total_seconds() * 1000))
                     except Exception:
                         pass
+                # 推断步骤状态
+                if step_error:
+                    step_status = "fail"
+                elif has_assertion_error:
+                    step_status = "fail"
+                else:
+                    step_status = "success"
                 step_result = {
                     "title": title,
+                    "status": step_status,
                     "status_code": getattr(log_handler, 'status_code', ''),
                     "response_headers": dict(getattr(log_handler, 'response_headers', {}) or {}),
                     "response_body": getattr(log_handler, 'response_body', ''),
@@ -227,7 +247,10 @@ class PreconditionExecutor:
                     "extract_info": list(step_extract_results),
                 }
                 self._precondition_results.append(step_result)
-                log_handler.info_log(f"{prefix}✅ [L{depth}] 前置完成: {title}")
+                if step_error or has_assertion_error:
+                    log_handler.warning_log(f"{prefix}❌ [L{depth}] 前置失败: {title}")
+                else:
+                    log_handler.info_log(f"{prefix}✅ [L{depth}] 前置完成: {title}")
 
             # 根据 failure_mode 决定是否继续
             if step_error:
