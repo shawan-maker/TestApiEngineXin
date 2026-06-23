@@ -111,6 +111,21 @@ class TestRunner:
         global_func.__dict__.update(builtins)
         exec(_gf, global_func.__dict__)
 
+    def get_env_snapshot(self) -> dict:
+        """获取执行后的环境变量快照（供上层平台读取）
+
+        返回包含 envs、debug_updates 的字典，
+        用于上层平台同步临时变量和持久化全局变量变更。
+
+        debug_updates 中的约定：
+        - value 非 None → 新增/更新全局变量
+        - value 为 None → 删除全局变量
+        """
+        return {
+            "envs": copy.deepcopy(dict(self._shared_env.get("envs") or {})),
+            "debug_updates": copy.deepcopy(self._shared_env.get("debug_updates") or {}),
+        }
+
 
 if __name__ == '__main__':
     import os

@@ -284,11 +284,11 @@ class BaseCase(CaseLogHandler):
         envs = self._shared_env.get("envs")
         if isinstance(envs, dict) and key in envs:
             del envs[key]
-        # 从 debug_updates 中移除，上层不再同步该变量到DB
+        # 在 debug_updates 中标记为 None，通知上层从数据库删除
         try:
             debug_updates = self._shared_env.get("debug_updates")
-            if isinstance(debug_updates, dict) and key in debug_updates:
-                del debug_updates[key]
+            if isinstance(debug_updates, dict):
+                debug_updates[key] = None
         except Exception:
             pass
 
