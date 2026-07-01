@@ -1,26 +1,31 @@
 import copy
+from typing import Optional
 
 from ApiEngine import log
 from ApiEngine.infra import global_func
 from ApiEngine.infra.exceptions import PreconditionChainError
 from ApiEngine.infra.test_result import TestResult
 from ApiEngine.infra.db_client import DBClient
+from ApiEngine.infra.suite_store import RunRegistry, RunStore
 from ApiEngine.engine.base_case import BaseCase
 
 
 class TestRunner:
-    def __init__(self, env_data):
+    def __init__(self, env_data, run_id=None):
         """
         :param env_data: 执行测试时的环境数据
+        :param run_id: 套件运行ID（传入时启用套件级变量共享）
         """
         # 深拷贝环境数据，避免修改调用方原始数据
         self.env_data = copy.deepcopy(env_data)
-        # debug_updates 保持原引用，变更对上层可见
+        # debug_updates 保持原引用，变更对上层可见（仅无 run_id 的退化路径使用）
         if "debug_updates" in env_data:
             self.env_data["debug_updates"] = env_data["debug_updates"]
         self.result = []
         self._db = DBClient()
         self._shared_env = {}  # 实例级共享环境
+        self._run_id = run_id
+        self._suite_store: Optional[RunStore] = RunRegistry.get(run_id) if run_id else None
 
     def execute_cases(self, testcases):
         """执行测试用例的方法"""
@@ -32,6 +37,13 @@ class TestRunner:
         # 统一初始化共享环境
         self._shared_env.clear()
         self._shared_env.update(self.env_data)
+
+        # 如果有 run_id，将 _shared_env["envs"] 和 debug_updates 指向套件级存储
+        # 这样所有变量读写（包括 Replacer、用户脚本、前置用例提取）自动走 _suite_stores
+        if self._suite_store:
+            self._shared_env["envs"] = self._suite_store.envs
+            self._shared_env["debug_updates"] = self._suite_store.debug_updates
+
         self._load_global_func()
 
         # 判断测试数据参数的类型
@@ -125,6 +137,58 @@ class TestRunner:
             "envs": copy.deepcopy(dict(self._shared_env.get("envs") or {})),
             "debug_updates": copy.deepcopy(self._shared_env.get("debug_updates") or {}),
         }
+
+    # ==================== 套件级共享变量：生命周期管理 ====================
+
+    @classmethod
+    def register_run(cls, run_id: str, initial_envs: dict) -> None:
+        """套件开始前注册共享存储。
+
+        :param run_id: 唯一运行标识（建议格式: suite-{id}-{run_id}-{timestamp}）
+        :param initial_envs: 初始环境变量（用户配置的基线值，含 DB 全局变量）
+        """
+        RunRegistry.register(run_id, initial_envs)
+
+    @classmethod
+    def unregister_run(cls, run_id: str) -> None:
+        """套件结束后清理共享存储。务必在 finally 中调用。"""
+        RunRegistry.unregister(run_id)
+
+    @classmethod
+    def get_debug_updates(cls, run_id: str) -> dict:
+        """获取需要持久化到 DB 的全局变量变更队列。
+
+        返回 dict 副本：
+        - value 非 None → upsert
+        - value 为 None → delete
+        """
+        store = RunRegistry.get(run_id)
+        if not store:
+            return {}
+        with store.lock:
+            return dict(store.debug_updates)
+
+    @classmethod
+    def clear_debug_updates(cls, run_id: str) -> None:
+        """重置变更队列（平台写 DB 后调用，避免重复写入）。"""
+        store = RunRegistry.get(run_id)
+        if store:
+            with store.lock:
+                store.debug_updates.clear()
+
+    @classmethod
+    def get_run_globals(cls, run_id: str) -> dict:
+        """获取当前套件累积的全部环境变量（含初始基线 + 运行时设置）。"""
+        store = RunRegistry.get(run_id)
+        if not store:
+            return {}
+        with store.lock:
+            return dict(store.envs)
+
+    @classmethod
+    def cleanup_stale_runs(cls, max_age_seconds: float = 3600) -> None:
+        """清理超时的残留 store（防止异常中断导致内存泄漏）。"""
+        RunRegistry.cleanup_stale(max_age_seconds)
 
 
 if __name__ == '__main__':

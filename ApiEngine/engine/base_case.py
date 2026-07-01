@@ -273,7 +273,14 @@ class BaseCase(CaseLogHandler):
     def del_evn_variable(self, key):
         """删除测试运行环境变量"""
         self.info_log(f"删除（临时）环境变量：{key}")
-        del self.env[key]
+        self.env.pop(key, None)
+        # 同时从套件级共享存储中删除，防止后续用例读到已删除的变量
+        try:
+            envs = self._shared_env.get("envs")
+            if isinstance(envs, dict):
+                envs.pop(key, None)
+        except Exception:
+            pass
 
     def save_global_variable(self, key, value):
         """保存测试运行环境的全局变量"""
