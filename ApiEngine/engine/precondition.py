@@ -1,4 +1,4 @@
-from ApiEngine.infra.exceptions import PreconditionChainError
+from ApiEngine.engine.exceptions import PreconditionChainError
 from ApiEngine.http.client import HttpClient
 from ApiEngine.engine.script_runner import ScriptRunner
 from ApiEngine.engine.extractor import Extractor

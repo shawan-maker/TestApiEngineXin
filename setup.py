@@ -9,7 +9,7 @@ with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as fh:
 
 setup(
     name="api_engine_xin",
-    version="0.0.28",
+    version="0.0.29",
     author="Shawn",
     author_email="xiaoh0525@xiaoh.com",
     description="接口测试平台测试用例执行引擎",

@@ -255,8 +255,18 @@ class BaseCase(CaseLogHandler):
 
     # ==================== 环境变量操作 ====================
 
+    def _touch_store(self):
+        """心跳：刷新 RunStore 活跃时间，防止长运行被误清"""
+        try:
+            run_store = self._shared_env.get("_run_store")
+            if run_store:
+                run_store.touch()
+        except Exception:
+            pass
+
     def _save_env_variable(self, key, value):
         """保存临时环境变量"""
+        self._touch_store()
         self.info_log(f"保存（临时）环境变量：{key} = {value}")
         self.env[key] = value
         try:
@@ -272,6 +282,7 @@ class BaseCase(CaseLogHandler):
 
     def del_evn_variable(self, key):
         """删除测试运行环境变量"""
+        self._touch_store()
         self.info_log(f"删除（临时）环境变量：{key}")
         self.env.pop(key, None)
         # 同时从套件级共享存储中删除，防止后续用例读到已删除的变量
@@ -284,6 +295,7 @@ class BaseCase(CaseLogHandler):
 
     def save_global_variable(self, key, value):
         """保存测试运行环境的全局变量"""
+        self._touch_store()
         self.info_log(f"保存全局变量：{key} = {value}")
         envs = self._shared_env.get("envs")
         if isinstance(envs, dict):
@@ -298,6 +310,7 @@ class BaseCase(CaseLogHandler):
 
     def del_global_variable(self, key):
         """删除测试运行环境的全局变量"""
+        self._touch_store()
         self.info_log(f"删除全局变量：{key}")
         envs = self._shared_env.get("envs")
         if isinstance(envs, dict) and key in envs:

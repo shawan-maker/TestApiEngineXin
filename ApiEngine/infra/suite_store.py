@@ -23,17 +23,23 @@ from typing import Dict, Optional, Set
 class RunStore:
     """单次套件运行的共享变量存储。
 
-    envs:          套件级累积环境变量（含初始基线 + 运行中写入）
-    debug_updates: 需要持久化到 DB 的全局变量变更队列
-    temp_keys:     标记哪些 key 是 save_env_variable 写入的（区分 temp 与 global）
-    lock:          保护并发写操作
-    created_at:    注册时间戳（用于 TTL 清理）
+    envs:           套件级累积环境变量（含初始基线 + 运行中写入）
+    debug_updates:  需要持久化到 DB 的全局变量变更队列
+    temp_keys:      标记哪些 key 是 save_env_variable 写入的（区分 temp 与 global）
+    lock:           保护并发写操作
+    created_at:     注册时间戳（仅用于诊断日志）
+    last_active_at: 最后一次变量读写的时间戳（cleanup 依据）
     """
     envs: dict = field(default_factory=dict)
     debug_updates: dict = field(default_factory=dict)
     temp_keys: Set[str] = field(default_factory=set)
     lock: threading.Lock = field(default_factory=threading.Lock)
     created_at: float = field(default_factory=time.time)
+    last_active_at: float = field(default_factory=time.time)
+
+    def touch(self) -> None:
+        """刷新活跃时间，防止长运行套件被 cleanup_stale 误清。"""
+        self.last_active_at = time.time()
 
 
 class RunRegistry:
@@ -65,8 +71,18 @@ class RunRegistry:
             cls._stores.pop(run_id, None)
 
     @classmethod
+    def touch(cls, run_id: str) -> None:
+        """刷新指定运行的活跃时间。变量读写时调用。"""
+        store = cls._stores.get(run_id)
+        if store:
+            store.touch()
+
+    @classmethod
     def cleanup_stale(cls, max_age_seconds: float = 3600) -> int:
         """清理超时的残留 store（防止异常中断导致内存泄漏）。
+
+        依据 last_active_at（最后一次变量读写）而非 created_at，
+        因此长时间运行但仍在活跃的套件不会被误清。
 
         :param max_age_seconds: 超时阈值（秒），默认1小时
         :return: 清理数量
@@ -75,7 +91,7 @@ class RunRegistry:
         with cls._registry_lock:
             stale = [
                 rid for rid, s in cls._stores.items()
-                if now - s.created_at > max_age_seconds
+                if now - s.last_active_at > max_age_seconds
             ]
             for rid in stale:
                 cls._stores.pop(rid, None)

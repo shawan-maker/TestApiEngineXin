@@ -27,3 +27,6 @@ build/
 
 # 开发工具
 .claude/
+
+# 个人参考文档（不上传 git）
+ARCHITECTURE.md
